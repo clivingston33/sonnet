@@ -52,6 +52,23 @@ function open() {
       hash TEXT PRIMARY KEY, -- SHA-256 of an imported file, so the same file isn't stored twice
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS watched (
+      path TEXT PRIMARY KEY, -- a file in the watched folder that has been brought in
+      stamp TEXT NOT NULL -- its size and modified time then, to notice a changed file
+    );
+    CREATE TABLE IF NOT EXISTS shared_shelves (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      owner INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      books TEXT NOT NULL DEFAULT '[]' -- book ids, in the order they were added
+    );
+    CREATE TABLE IF NOT EXISTS recommendations (
+      to_user INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      from_user INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      created INTEGER NOT NULL,
+      PRIMARY KEY (to_user, from_user, book_id)
+    );
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

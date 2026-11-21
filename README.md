@@ -44,6 +44,14 @@ covers, and Restore puts one back; the book files in `library/` are not in it an
 by hand. Importing a file that is already there is skipped, and Tidy Now re-files older books
 with the current rules. `MAX_UPLOAD_MB` caps a single upload (default 2048).
 
+Watched folder: Settings → Library (admin) takes a folder path on the server. It is checked
+every five minutes, subfolders included; new files are hard-linked into `library/` (copied when
+on another drive), so the originals stay put and take no extra space. With Docker, mount the
+folder into the container and enter the path as the container sees it.
+
+Sharing: shared shelves, recommendations between people and a "what others are reading" list
+on Home. A profile can turn off sharing its reading under Settings → Account.
+
 Books are shared by everyone on the server. Shelves, ratings, progress, bookmarks, highlights,
 goals, reading time and any details a person edits (title, author, description, series, tags)
 belong to that person's profile.

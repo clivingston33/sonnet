@@ -76,6 +76,82 @@ const compact = new Intl.NumberFormat("en", { notation: "compact" }).format;
 
 type DetailState = { ids: string[]; id: string }; // ids = the list the arrows step through
 
+type Social = {
+  people: { id: number; name: string }[]; // everyone else on the server
+  shelves: { id: number; name: string; bookIds: string[]; mine: boolean }[]; // mine: may rename and delete
+  activity: { name: string; book: string; progress?: number; finished?: string; rating?: number }[];
+  recs: { book: string; name: string }[];
+};
+const NO_SOCIAL: Social = { people: [], shelves: [], activity: [], recs: [] };
+
+/** Admin only: a folder on the server that is checked for new books every few minutes. */
+function WatchFolder() {
+  const { toast } = useContext(LibCtx);
+  const [folder, setFolder] = useState<string | null>(null); // null until loaded
+  const [busy, setBusy] = useState(false);
+  const call = async (body: Record<string, unknown>) => {
+    setBusy(true);
+    const res = await fetch("/api/admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+    setBusy(false);
+    const answer = await res?.json().catch(() => null);
+    if (!res?.ok) {
+      toast("Not Saved", answer?.error ?? "The server couldn’t be reached.");
+      return null;
+    }
+    if ("folder" in answer) setFolder(answer.folder);
+    return answer as { added?: number; found?: number };
+  };
+  useEffect(() => {
+    call({ action: "watchInfo" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const report = (answer: { added?: number; found?: number } | null) => {
+    if (!answer) return;
+    toast("Checked", `${answer.added} new of ${answer.found} files in the folder.`);
+    if (answer.added) setTimeout(() => location.reload(), 1500);
+  };
+  return (
+    <SettingRow
+      title="Watched folder"
+      text="A folder on the server (not on this device) whose books are added automatically, subfolders included. It is checked every five minutes. The files stay where they are."
+    >
+      <form
+        key={folder ?? "loading"}
+        className="flex flex-wrap gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          report(await call({ action: "watch", folder: new FormData(e.currentTarget).get("folder") }));
+        }}
+      >
+        <input
+          name="folder"
+          aria-label="Watched folder"
+          placeholder="/path/on/the/server"
+          defaultValue={folder ?? ""}
+          className={`${fieldClass} !h-[30px] !w-[260px]`}
+        />
+        <button disabled={busy} className={controlClass}>
+          Save
+        </button>
+        {folder && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={async () => report(await call({ action: "scan" }))}
+            className={controlClass}
+          >
+            {busy ? "Checking…" : "Check Now"}
+          </button>
+        )}
+      </form>
+    </SettingRow>
+  );
+}
+
 type Lib = {
   s: Saved;
   set: (fn: (prev: Saved) => Partial<Saved>) => void;
@@ -90,6 +166,10 @@ type Lib = {
   preview: (f: Found) => void;
   /** Opens the "Who's reading?" profile picker. */
   pickProfile: () => void;
+  /** What the people on this server share: shared shelves, their reading, recommendations to you. */
+  social: Social;
+  /** Calls the social API and refreshes `social`; resolves to the answer, or null when it failed. */
+  socialCall: (body: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
   openImport: () => void;
   importFiles: (files: File[]) => void;
   /** Puts a book the server just created or changed into the library. */
@@ -118,8 +198,21 @@ function BookMenu({
   align?: string;
   floating?: boolean; // inside a scrolling row: place the menu against the window
 }) {
-  const { s, set, toggleWant, toggleFinished, toast, newCollection, edit, sortable, move, user, setDetail } =
-    useContext(LibCtx);
+  const {
+    s,
+    set,
+    toggleWant,
+    toggleFinished,
+    toast,
+    newCollection,
+    edit,
+    sortable,
+    move,
+    user,
+    setDetail,
+    social,
+    socialCall,
+  } = useContext(LibCtx);
   return (
     <Popover
       label={`Options for ${book.title}`}
@@ -196,6 +289,34 @@ function BookMenu({
         label="New Shelf"
         onClick={() => newCollection(book.id)}
       />
+      {social.shelves.length > 0 && (
+        <p className="px-[6px] pt-2 pb-[3px] text-[11px] font-bold text-[#777]">Shared Shelves</p>
+      )}
+      {social.shelves.map((c) => (
+        <MenuItem
+          key={c.id}
+          label={c.name}
+          checked={c.bookIds.includes(book.id)}
+          onClick={() => socialCall({ action: "toggleBook", id: c.id, book: book.id })}
+        />
+      ))}
+      {social.people.length > 0 && (
+        <>
+          {MENU_RULE}
+          <p className="px-[6px] pt-1 pb-[3px] text-[11px] font-bold text-[#777]">Recommend To</p>
+          {social.people.map((p) => (
+            <MenuItem
+              key={p.id}
+              icon="user"
+              label={p.name}
+              onClick={async () => {
+                if (await socialCall({ action: "recommend", to: p.id, book: book.id }))
+                  toast("Recommended", `${p.name} will see “${book.title}” on their Home page.`);
+              }}
+            />
+          ))}
+        </>
+      )}
       {/* Removing deletes the book and its files for everyone, so only the admin can.
           A book without a file (added from Discover) only leaves your own lists. */}
       {(user.admin || !book.file) && (
@@ -401,7 +522,12 @@ function Grid({ books, group = false }: { books: Book[]; group?: boolean }) {
           );
         }
         return (
-          <div key={b.id} className="w-[188px]" {...drag(b.id)}>
+          // The halo of a selected book: the whole tile, from the cover down to its tag and menu.
+          <div
+            key={b.id}
+            className="-m-2 w-[204px] rounded-lg p-2 focus-within:bg-white/15"
+            {...drag(b.id)}
+          >
             <CoverButton book={b} w={188} ids={ids} />
             <div className="mt-[10px] flex h-5 items-center gap-[6px] text-[#a8a8a8]">
               {b.kind === "audiobook" && <Icon name="headphones" className="size-4" />}
@@ -430,7 +556,7 @@ function List({ books, community }: { books: Book[]; community: boolean }) {
       {books.map((b) => (
         <div
           key={b.id}
-          className="flex items-center gap-4 max-md:rounded-lg max-md:bg-[#2e2e2e] max-md:p-3 md:gap-[29px]"
+          className="-m-2 flex items-center gap-4 rounded-lg p-2 focus-within:bg-white/10 max-md:bg-[#2e2e2e] max-md:p-3 md:gap-[29px]"
           {...drag(b.id)}
         >
           {/* a compact card on phones, the full row on wider screens */}
@@ -683,7 +809,14 @@ const DAILY_OPTIONS = [5, 10, 15, 20, 30, 45, 60];
 const YEARLY_OPTIONS = [1, 3, 5, 10, 12, 20, 24, 36, 52];
 
 function Home() {
-  const { s, set, setView, setDetail, play, read: openReader } = useContext(LibCtx);
+  const { s, set, setView, setDetail, play, read: openReader, social, socialCall } = useContext(LibCtx);
+  const known = <T extends { book: string }>(items: T[]) =>
+    items.flatMap((item) => {
+      const book = s.books.find((b) => b.id === item.book);
+      return book ? [{ ...item, book }] : [];
+    });
+  const recs = known(social.recs);
+  const activity = known(social.activity);
   const [goalEdit, setGoalEdit] = useState<"daily" | "yearly" | null>(null);
 
   const now = new Date();
@@ -901,6 +1034,56 @@ function Home() {
         </p>
       </section>
 
+      {recs.length > 0 && (
+        <Section title="Recommended to You">
+          <div className="flex flex-wrap items-end gap-x-[27px] gap-y-8">
+            {recs.map(({ book, name }) => (
+              <div key={book.id + name} className="w-[140px]">
+                <CoverButton book={book} w={140} ids={recs.map((r) => r.book.id)} />
+                <p className="mt-2 truncate text-[13px] font-semibold">{book.title}</p>
+                <div className="flex items-center justify-between gap-2 text-[12px] text-[#9a9a9a]">
+                  <span className="truncate">From {name}</span>
+                  <button
+                    onClick={() => socialCall({ action: "dismiss", book: book.id })}
+                    className="shrink-0 hover:text-white"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+      {activity.length > 0 && (
+        <Section title="What Others Are Reading">
+          <div className="grid gap-x-[25px] md:mr-[33px] md:grid-cols-2">
+            {activity.map(({ book, name, progress, finished, rating }) => (
+              <div key={name + book.id + (finished ?? "")} className="border-b border-white/10 py-[2px]">
+                <button
+                  onClick={() => setDetail({ ids: [book.id], id: book.id })}
+                  className="flex w-full items-center gap-[18px] rounded-lg p-2 text-left hover:bg-white/5"
+                >
+                  <Cover book={book} w={44} />
+                  <span className="min-w-0 text-[13px] leading-[19.500px]">
+                    <span className="block truncate">
+                      <b>{name}</b> {finished ? "finished" : "is reading"}
+                    </span>
+                    <span className="block truncate font-semibold">{book.title}</span>
+                    <span className="block text-[#9a9a9a]">
+                      {finished
+                        ? rating
+                          ? `★ ${rating}`
+                          : "Finished"
+                        : `${Math.round((progress ?? 0) * 100)}%`}
+                    </span>
+                  </span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
       {s.books.length > 0 && (
         <Section title="Recently Added">
           <Grid books={s.books.toSorted(newestFirst).slice(0, 6)} />
@@ -1057,6 +1240,14 @@ const HELP: [string, string][] = [
   [
     "Profiles",
     "One sign-in can hold up to 8 profiles, each with its own shelves, progress, goals, stats and reviews. Add them under Settings → Account, and change who’s reading with Switch Profile in the account menu. A profile can set a PIN of 4 to 8 digits there; a forgotten PIN is cleared with the account password. Books of one series can be collapsed into a stack with Stack Series in a shelf’s ••• menu.",
+  ],
+  [
+    "Sharing with the others",
+    "Shared Shelves in the sidebar are seen by everyone on this server, and anyone can add books to them from a book’s ••• menu; whoever made a shelf (or the admin) can rename or delete it. Recommend To in the same menu puts a book on someone’s Home page. Home also shows what the others are reading and recently finished; turn off Share my reading under Settings → Account to keep yours private.",
+  ],
+  [
+    "Watched folder",
+    "The admin can name a folder on the server under Settings → Library. Books put there, in any subfolder, are added by themselves within five minutes; the files stay where they are.",
   ],
   [
     "Forgotten password",
@@ -1426,6 +1617,17 @@ function SettingsSheet({
             }}
           />
         </SettingRow>
+        <SettingRow
+          title="Share my reading"
+          text="Let the other people on this server see what you’re reading and what you finished, on their Home page."
+        >
+          <input
+            type="checkbox"
+            aria-label="Share my reading"
+            checked={s.share}
+            onChange={(e) => set(() => ({ share: e.target.checked }))}
+          />
+        </SettingRow>
         <h3 className="px-5 pt-5 pb-2 text-[15px] font-bold">Profiles</h3>
         <Profiles />
         {user.admin && (
@@ -1489,6 +1691,7 @@ function SettingsSheet({
         </SettingRow>
         {user.admin && (
           <>
+            <WatchFolder />
             <SettingRow
               title="Tidy library"
               text="Go over every book again: move comics filed as books to Manga & Comics, clean download tags out of titles, and fingerprint files so the same file isn’t imported twice."
@@ -2649,7 +2852,7 @@ function CoverButton({ book, w, ids }: { book: Book; w: number; ids: string[] })
       title="Double-click to open"
       onDoubleClick={open}
       onKeyDown={(e) => e.key === "Enter" && open()}
-      className="w-fit shrink-0 cursor-pointer rounded-[5px] outline-none focus:bg-white/20 focus:shadow-[0_0_0_7px_rgba(255,255,255,0.2)]"
+      className="w-fit shrink-0 cursor-pointer outline-none"
     >
       <Cover book={book} w={w} />
     </div>
@@ -3664,6 +3867,12 @@ export default function Page() {
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [previewing, setPreviewing] = useState<Found | null>(null);
   const [picking, setPicking] = useState<"auto" | "asked" | null>(null); // profile picker
+  const [social, setSocial] = useState(NO_SOCIAL);
+  const loadSocial = () =>
+    fetch("/api/social")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => body && setSocial(body))
+      .catch(() => {});
   const [hud, setHud] = useState<{ title: string; text: string } | null>(null);
   const requested = useRef(new Set<string>());
   const [navOpen, setNavOpen] = useState(false); // sidebar drawer on narrow windows
@@ -3690,6 +3899,7 @@ export default function Page() {
       setS(state);
       setAuth(body.user);
       setSavedAt(Date.now());
+      loadSocial();
     } catch {
       setAuth("offline");
     }
@@ -3870,7 +4080,11 @@ export default function Page() {
   }, []);
 
   // Shelf views: a nav id, `c:<collection id>`, `s:<series>` or `t:<tag>`.
-  const collection = s.collections.find((c) => `c:${c.id}` === view);
+  // A shared shelf (`x:<id>`) is shown like one of your own; only where it is stored differs.
+  const sharedShelf = social.shelves.find((c) => `x:${c.id}` === view);
+  const collection: { id: string; name: string; bookIds: string[] } | undefined =
+    s.collections.find((c) => `c:${c.id}` === view) ??
+    (sharedShelf && { ...sharedShelf, id: String(sharedShelf.id) });
   const series = view.startsWith("s:") ? view.slice(2) : null;
   const tag = view.startsWith("t:") ? view.slice(2) : null;
   const isShelf = view in FILTERS || !!collection || !!series || !!tag;
@@ -3940,6 +4154,21 @@ export default function Page() {
       }));
     },
     pickProfile: () => setPicking("asked"),
+    social,
+    socialCall: async (body) => {
+      const res = await fetch("/api/social", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => null);
+      const answer = await res?.json().catch(() => null);
+      if (!res?.ok) {
+        toast("Not Done", answer?.error ?? "The server couldn’t be reached.");
+        return null;
+      }
+      await loadSocial();
+      return answer;
+    },
     user,
     logout: async () => {
       await flush();
@@ -4036,6 +4265,11 @@ export default function Page() {
   const readingBook = s.books.find((b) => b.id === readingId && b.file);
 
   const deleteShelf = (id: string) => {
+    if (sharedShelf && String(sharedShelf.id) === id) {
+      if (confirm(`Delete the shared shelf “${sharedShelf.name}” for everyone? Its books stay in the library.`))
+        lib.socialCall({ action: "deleteShelf", id: sharedShelf.id }).then(() => setView("all"));
+      return;
+    }
     set((prev) => ({ collections: prev.collections.filter((c) => c.id !== id) }));
     if (view === `c:${id}`) setView("all");
   };
@@ -4143,6 +4377,20 @@ export default function Page() {
             >
               <Icon name="plus" />
               New Shelf
+            </button>
+            <h3 className={headingClass}>Shared Shelves</h3>
+            {social.shelves.map((c) => navButton(`x:${c.id}`, c.name, "user"))}
+            <button
+              onClick={async () => {
+                const name = prompt("Name for the shared shelf. Everyone on this server can see it and add books.");
+                if (!name?.trim()) return;
+                const made = await lib.socialCall({ action: "newShelf", name });
+                if (made) go(`x:${made.id}`);
+              }}
+              className={`${itemClass} hover:bg-white/5`}
+            >
+              <Icon name="plus" />
+              New Shared Shelf
             </button>
             {tags.length > 0 && <h3 className={headingClass}>Tags</h3>}
             {tags.map((t) => navButton(`t:${t}`, t, "tag"))}
@@ -4283,9 +4531,23 @@ export default function Page() {
                     checked={s.stack}
                     onClick={() => set((prev) => ({ stack: !prev.stack }))}
                   />
-                  {collection && (
+                  {sharedShelf?.mine && (
                     <>
                       {MENU_RULE}
+                      <MenuItem
+                        label="Rename Shelf"
+                        icon="pencil"
+                        checked={false}
+                        onClick={() => {
+                          const name = prompt("New name for this shared shelf.", sharedShelf.name);
+                          if (name?.trim()) lib.socialCall({ action: "renameShelf", id: sharedShelf.id, name });
+                        }}
+                      />
+                    </>
+                  )}
+                  {collection && (!sharedShelf || sharedShelf.mine) && (
+                    <>
+                      {!sharedShelf?.mine && MENU_RULE}
                       <MenuItem
                         label="Delete Shelf"
                         icon="trash"

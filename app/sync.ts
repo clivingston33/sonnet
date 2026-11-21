@@ -83,6 +83,7 @@ export type Saved = {
   yearlyGoal: number; // books
   lookups: boolean; // fetch covers, descriptions and ratings online
   stack: boolean; // collapse the books of a series into one stack on the library shelves
+  share: boolean; // let the other people on the server see what this profile is reading
   reader: ReaderPrefs;
 };
 
@@ -115,6 +116,7 @@ export const PREF_KEYS = [
   "yearlyGoal",
   "lookups",
   "stack",
+  "share",
   "reader",
 ] as const;
 
@@ -128,6 +130,7 @@ export const DEFAULT_PREFS: Pick<Saved, (typeof PREF_KEYS)[number]> = {
   yearlyGoal: 3,
   lookups: true,
   stack: false,
+  share: true,
   reader: { fontSize: 100, theme: "dark" },
 };
 
