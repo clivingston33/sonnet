@@ -88,7 +88,7 @@ export async function GET(req: Request) {
     const about = params.get("about") ?? "";
     const comicId = ANILIST.exec(about)?.[1];
     if (comicId) {
-      const [m] = await mangaList(`id: ${comicId}`);
+      const [m] = await mangaList(`id: ${comicId}`, adult);
       return Response.json({ description: m?.description, genre: m?.genre, facts: m?.facts });
     }
     if (WORK.test(about)) {
@@ -97,13 +97,13 @@ export async function GET(req: Request) {
       return Response.json({ description: plainText(description), genre: genreOf(work?.subjects) });
     }
     const drawn = comic
-      ? await mangaList(`search: ${JSON.stringify(comic)}, sort: SEARCH_MATCH`)
+      ? await mangaList(`search: ${JSON.stringify(comic)}, sort: SEARCH_MATCH`, adult)
       : comicGenre
-        ? await mangaList(`genre: ${JSON.stringify(comicGenre)}, sort: POPULARITY_DESC`)
+        ? await mangaList(`genre: ${JSON.stringify(comicGenre)}, sort: POPULARITY_DESC`, adult)
         : list === "manga"
-        ? await mangaList(`sort: TRENDING_DESC, countryOfOrigin: "JP"`)
+        ? await mangaList(`sort: TRENDING_DESC, countryOfOrigin: "JP"`, adult)
         : list === "manhwa"
-          ? await mangaList(`sort: TRENDING_DESC, countryOfOrigin: "KR"`)
+          ? await mangaList(`sort: TRENDING_DESC, countryOfOrigin: "KR"`, adult)
           : null;
     if (drawn) return Response.json({ books: drawn.map(fromManga) });
 
@@ -119,7 +119,7 @@ export async function GET(req: Request) {
               ? search(`first_publish_year:[${new Date().getFullYear() - 1} TO *]`, "&sort=trending")
               : null;
     if (!path) return Response.json({ error: "Unknown list" }, { status: 400 });
-    const books: Found[] = (await works(path))
+    const books: Found[] = (await works(path, adult))
       .filter((d) => q || num(d.cover_i))
       .slice(0, 18)
       .map((d) => ({
