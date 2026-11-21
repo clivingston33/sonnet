@@ -185,3 +185,43 @@ export function diff(prev: Saved, next: Saved): Batch | null {
 
   return Object.keys(batch).length ? batch : null;
 }
+
+/** Two batches as one: later fields win, reading time adds up. For changes that waited offline across visits. */
+export function mergeBatch(first: Batch | null, then: Batch | null): Batch | null {
+  if (!first || !then) return first ?? then;
+  const books = { ...first.books };
+  for (const [id, change] of Object.entries(then.books ?? {}))
+    books[id] = {
+      mine: { ...books[id]?.mine, ...change.mine },
+      shared: { ...books[id]?.shared, ...change.shared },
+    };
+  const time = { ...first.time };
+  for (const [day, seconds] of Object.entries(then.time ?? {})) time[day] = (time[day] ?? 0) + seconds;
+  return {
+    books,
+    removed: [...new Set([...(first.removed ?? []), ...(then.removed ?? [])])],
+    prefs: { ...first.prefs, ...then.prefs },
+    time,
+  };
+}
+
+/**
+ * A state with a waiting batch's book and settings changes laid over it, so an offline visit
+ * shows what was done on the last one. Reading time is left out: it is only ever sent as an addition.
+ */
+export function applyBatch(state: Saved, batch: Batch): Saved {
+  const removed = new Set(batch.removed);
+  const books = state.books
+    .filter((b) => !removed.has(b.id))
+    .map((b) => {
+      const change = batch.books?.[b.id];
+      if (!change) return b;
+      const next: Fields = { ...b };
+      for (const [key, value] of Object.entries({ ...change.shared, ...change.mine }))
+        if (value === null) delete next[key];
+        else next[key] = value;
+      return next as Book;
+    });
+  const { order: _order, ...prefs } = batch.prefs ?? {};
+  return { ...state, ...prefs, books };
+}

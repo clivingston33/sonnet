@@ -1,7 +1,7 @@
 // Run: node --test app/sync.test.ts
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_PREFS, diff, type Book, type Saved } from "./sync.ts";
+import { DEFAULT_PREFS, applyBatch, diff, mergeBatch, type Book, type Saved } from "./sync.ts";
 
 const book = (id: string, extra: Partial<Book> = {}): Book => ({
   id,
@@ -55,4 +55,22 @@ test("removal, reorder, settings and added reading time", () => {
     prefs: { dailyGoal: 20, order: ["b"] },
     time: { "2026-01-01": 15, "2026-01-02": 5 },
   });
+});
+
+test("offline: batches merge (time adds, later fields win) and can be laid over a stale state", () => {
+  const first = diff(state(), state({ books: [book("a", { progress: 0.2, page: 4 }), book("b")], log: { "2026-01-01": 90 } }))!;
+  const then = diff(state(), state({ books: [book("a", { progress: 0.5 }), book("b")], dailyGoal: 20, log: { "2026-01-01": 100 } }))!;
+  const both = mergeBatch(first, then)!;
+  assert.deepEqual(both.books!.a.mine, { progress: 0.5, page: 4 });
+  assert.equal(both.time!["2026-01-01"], 70); // 30 + 40
+  assert.equal(mergeBatch(null, then), then);
+
+  const shown = applyBatch(state({ books: [book("a", { rating: 4 }), book("b")] }), {
+    ...both,
+    books: { ...both.books, a: { mine: { ...both.books!.a.mine, rating: null } } },
+    removed: ["b"],
+  });
+  assert.deepEqual(shown.books, [book("a", { progress: 0.5, page: 4 })]);
+  assert.equal(shown.dailyGoal, 20);
+  assert.deepEqual(shown.log, { "2026-01-01": 60 }); // time is not applied twice
 });

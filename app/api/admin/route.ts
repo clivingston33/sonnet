@@ -6,7 +6,6 @@ import { authorize } from "../../server/auth";
 import { COVER_DIR, DATA_DIR, LIBRARY_DIR, STORED, closeDb, db, patchBook, type BookData } from "../../server/db";
 import { hashFile } from "../../server/files";
 import { CONVERTER, nameMeta, readMeta, tidyComic, volumeOf } from "../../server/metadata";
-import { scanWatched, setWatchedFolder, watchedFolder } from "../../server/watch";
 
 const DB_FILE = path.join(DATA_DIR, "library.db");
 const admin = (req: Request, write = false) => {
@@ -63,24 +62,13 @@ export async function PUT(req: Request) {
 }
 
 /**
- * POST { action }:
- * - "watchInfo": the watched folder. "watch" { folder }: sets it ("" turns it off) and checks it.
- *   "scan": checks it now.
- * - anything else: goes over every book again with the current rules. Files are fingerprinted so
- *   later imports of the same file are recognised, comics filed as books move to Manga & Comics,
- *   and titles lose download-site and release tags. Details edited by hand are left alone.
+ * POST: goes over every book again with the current rules. Files are fingerprinted so later
+ * imports of the same file are recognised, comics filed as books move to Manga & Comics, and
+ * titles lose download-site and release tags. Details edited by hand are left alone.
  */
 export async function POST(req: Request) {
   const user = admin(req, true);
   if (user instanceof Response) return user;
-  const body = await req.json().catch(() => ({}));
-  if (body.action === "watchInfo") return Response.json({ folder: watchedFolder() });
-  if (body.action === "watch") {
-    const error = await setWatchedFolder(typeof body.folder === "string" ? body.folder.trim().slice(0, 1000) : "");
-    if (error) return Response.json({ error }, { status: 400 });
-    return Response.json({ folder: watchedFolder(), ...(await scanWatched()) });
-  }
-  if (body.action === "scan") return Response.json(await scanWatched());
 
   let changed = 0;
   const remember = db.prepare("INSERT OR IGNORE INTO files (hash, book_id) VALUES (?, ?)");

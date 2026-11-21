@@ -57,6 +57,17 @@ async function pdfjs() {
   return lib;
 }
 
+/**
+ * Fetches the reader's own code (EPUB, comic and PDF engines) so the service worker has it
+ * when a downloaded book is opened without a connection.
+ */
+export const warmReader = () =>
+  Promise.allSettled([
+    import("epubjs"),
+    import("jszip"),
+    pdfjs().then((lib) => fetch(lib.GlobalWorkerOptions.workerSrc)),
+  ]);
+
 /** Renders page 1 of a PDF to a JPEG about 600px wide, for use as its cover. */
 export async function pdfCover(file: Blob) {
   const doc = await (await pdfjs()).getDocument({ data: await file.arrayBuffer() }).promise;

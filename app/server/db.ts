@@ -52,10 +52,6 @@ function open() {
       hash TEXT PRIMARY KEY, -- SHA-256 of an imported file, so the same file isn't stored twice
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS watched (
-      path TEXT PRIMARY KEY, -- a file in the watched folder that has been brought in
-      stamp TEXT NOT NULL -- its size and modified time then, to notice a changed file
-    );
     CREATE TABLE IF NOT EXISTS shared_shelves (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,

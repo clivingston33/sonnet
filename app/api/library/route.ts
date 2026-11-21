@@ -2,7 +2,6 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { authorize } from "../../server/auth";
 import { COVER_DIR, LIBRARY_DIR, STORED, db, getBook, patchBook } from "../../server/db";
-import { startWatching } from "../../server/watch";
 import { EDITABLE_FIELDS, PREF_KEYS, USER_FIELDS, type Batch } from "../../sync";
 
 type Fields = Record<string, unknown>;
@@ -46,7 +45,6 @@ export async function GET(req: Request) {
   for (const r of db.prepare("SELECT day, seconds FROM reading_days WHERE user_id = ?").all(user.id))
     log[String(r.day)] = Number(r.seconds);
 
-  startWatching(); // the watched folder is checked for as long as someone uses the server
   delete prefs.order;
   return Response.json({ user, books, log, prefs });
 }

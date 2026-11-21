@@ -28,7 +28,17 @@ import {
   sheetClass,
   type IconName,
 } from "./ui";
-import { Reader, READABLE, extOf, pdfCover } from "./reader";
+import { Reader, READABLE, extOf, pdfCover, warmReader } from "./reader";
+import {
+  canWorkOffline,
+  download,
+  downloadedFiles,
+  forgetLibrary,
+  loadPending,
+  registerWorker,
+  removeDownloads,
+  savePending,
+} from "./offline";
 import {
   DEFAULT_PREFS,
   INFO_VERSION,
@@ -37,7 +47,10 @@ import {
   type Book,
   type Found,
   type Kind,
+  type Batch,
   type Saved,
+  applyBatch,
+  mergeBatch,
 } from "./sync";
 
 const INITIAL: Saved = { ...DEFAULT_PREFS, books: [], log: {} };
@@ -84,74 +97,6 @@ type Social = {
 };
 const NO_SOCIAL: Social = { people: [], shelves: [], activity: [], recs: [] };
 
-/** Admin only: a folder on the server that is checked for new books every few minutes. */
-function WatchFolder() {
-  const { toast } = useContext(LibCtx);
-  const [folder, setFolder] = useState<string | null>(null); // null until loaded
-  const [busy, setBusy] = useState(false);
-  const call = async (body: Record<string, unknown>) => {
-    setBusy(true);
-    const res = await fetch("/api/admin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).catch(() => null);
-    setBusy(false);
-    const answer = await res?.json().catch(() => null);
-    if (!res?.ok) {
-      toast("Not Saved", answer?.error ?? "The server couldn’t be reached.");
-      return null;
-    }
-    if ("folder" in answer) setFolder(answer.folder);
-    return answer as { added?: number; found?: number };
-  };
-  useEffect(() => {
-    call({ action: "watchInfo" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const report = (answer: { added?: number; found?: number } | null) => {
-    if (!answer) return;
-    toast("Checked", `${answer.added} new of ${answer.found} files in the folder.`);
-    if (answer.added) setTimeout(() => location.reload(), 1500);
-  };
-  return (
-    <SettingRow
-      title="Watched folder"
-      text="A folder on the server (not on this device) whose books are added automatically, subfolders included. It is checked every five minutes. The files stay where they are."
-    >
-      <form
-        key={folder ?? "loading"}
-        className="flex flex-wrap gap-2"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          report(await call({ action: "watch", folder: new FormData(e.currentTarget).get("folder") }));
-        }}
-      >
-        <input
-          name="folder"
-          aria-label="Watched folder"
-          placeholder="/path/on/the/server"
-          defaultValue={folder ?? ""}
-          className={`${fieldClass} !h-[30px] !w-[260px]`}
-        />
-        <button disabled={busy} className={controlClass}>
-          Save
-        </button>
-        {folder && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={async () => report(await call({ action: "scan" }))}
-            className={controlClass}
-          >
-            {busy ? "Checking…" : "Check Now"}
-          </button>
-        )}
-      </form>
-    </SettingRow>
-  );
-}
-
 type Lib = {
   s: Saved;
   set: (fn: (prev: Saved) => Partial<Saved>) => void;
@@ -170,6 +115,13 @@ type Lib = {
   social: Social;
   /** Calls the social API and refreshes `social`; resolves to the answer, or null when it failed. */
   socialCall: (body: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
+  /** Stored names of the book files kept on this device for offline reading. */
+  offline: Set<string>;
+  /** Ids of the books being downloaded right now. */
+  downloading: Set<string>;
+  /** Downloads the book to this device, or removes it when it is already here. */
+  keepOffline: (book: Book) => Promise<void>;
+  clearOffline: () => Promise<void>;
   openImport: () => void;
   importFiles: (files: File[]) => void;
   /** Puts a book the server just created or changed into the library. */
@@ -234,6 +186,7 @@ function BookMenu({
       />
       <MenuItem icon="book" label="View Details" onClick={() => setDetail({ ids: [book.id], id: book.id })} />
       <MenuItem icon="pencil" label="Edit Details…" onClick={() => edit(book.id)} />
+      {book.file && <MenuItem icon="cloudDown" label="Save a Copy…" onClick={() => saveCopy(book)} />}
       {/* Manga in EPUB form that wasn't recognised as such, or a book that was mistaken for one. */}
       {/\.(epub|cbz)$/.test(book.file ?? "") && (
         <MenuItem
@@ -382,26 +335,46 @@ function Stars({ book, className }: { book: Book; className: string }) {
   );
 }
 
-/** Saves a copy of the book's file (every part, for an audiobook) to this device. */
+const filesOf = (book: Book) =>
+  book.files?.length ? book.files.map((f) => f.file) : book.file ? [book.file] : [];
+
+/** Saves a copy of the book's file (every part, for an audiobook) into the device's downloads. */
+function saveCopy(book: Book) {
+  const parts = filesOf(book);
+  parts.forEach((file, i) => {
+    const link = document.createElement("a");
+    link.href = `/api/file?file=${file}`;
+    // Named after the book rather than the stored id; parts are numbered.
+    link.download = `${book.title.replace(/[\\/:*?"<>|]/g, " ").trim()}${parts.length > 1 ? ` ${i + 1}` : ""}.${extOf(file)}`;
+    link.click();
+  });
+}
+
+/**
+ * Keeps the book on this device so it opens without a connection: a cloud with an arrow to
+ * download, a tick once it is here (click again to remove it).
+ */
 function CloudButton({ book }: { book: Book }) {
-  const parts = book.files?.length ? book.files.map((f) => f.file) : book.file ? [book.file] : [];
+  const { offline, downloading, keepOffline } = useContext(LibCtx);
+  const parts = filesOf(book);
   if (!parts.length) return null;
+  const here = parts.every((file) => offline.has(file));
+  const busy = downloading.has(book.id);
   return (
     <button
-      aria-label={`Download ${book.title}`}
-      title="Download to this device"
-      onClick={() =>
-        parts.forEach((file, i) => {
-          const link = document.createElement("a");
-          link.href = `/api/file?file=${file}`;
-          // Named after the book rather than the stored id; parts are numbered.
-          link.download = `${book.title.replace(/[\\/:*?"<>|]/g, " ").trim()}${parts.length > 1 ? ` ${i + 1}` : ""}.${extOf(file)}`;
-          link.click();
-        })
+      aria-label={
+        busy
+          ? `Downloading ${book.title}`
+          : here
+            ? `Remove download of ${book.title}`
+            : `Download ${book.title} for offline reading`
       }
-      className="block hover:text-white"
+      title={busy ? "Downloading…" : here ? "On this device. Click to remove." : "Download for offline reading"}
+      disabled={busy}
+      onClick={() => keepOffline(book)}
+      className={`block hover:text-white ${busy ? "animate-pulse" : ""}`}
     >
-      <Icon name="cloudDown" className="size-5" strokeWidth={1.4} />
+      <Icon name={here ? "cloudDone" : "cloudDown"} className="size-5" strokeWidth={1.4} />
     </button>
   );
 }
@@ -1246,8 +1219,8 @@ const HELP: [string, string][] = [
     "Shared Shelves in the sidebar are seen by everyone on this server, and anyone can add books to them from a book’s ••• menu; whoever made a shelf (or the admin) can rename or delete it. Recommend To in the same menu puts a book on someone’s Home page. Home also shows what the others are reading and recently finished; turn off Share my reading under Settings → Account to keep yours private.",
   ],
   [
-    "Watched folder",
-    "The admin can name a folder on the server under Settings → Library. Books put there, in any subfolder, are added by themselves within five minutes; the files stay where they are.",
+    "Reading offline",
+    "The cloud button on a book downloads it to this device; a tick means it is here, and clicking again removes it. Downloaded books open without a connection, and your place, bookmarks and reading time are sent to the server when it is reachable again. On a phone or tablet, use the browser’s Add to Home Screen to install the app. This needs a secure (https) address; it is not available over a plain http address on your home network.",
   ],
   [
     "Forgotten password",
@@ -1267,7 +1240,7 @@ const HELP: [string, string][] = [
   ],
   [
     "Reading",
-    "EPUB, PDF, comic (CBZ) and text files open in the reader. In an EPUB you can search, jump by chapter, bookmark a page, change text size and theme, and select text to highlight it or add a note. The cloud button on a book saves a copy of its file to your device.",
+    "EPUB, PDF, comic (CBZ) and text files open in the reader. In an EPUB you can search, jump by chapter, bookmark a page, change text size and theme, and select text to highlight it or add a note. Save a Copy in a book’s ••• menu puts its file in your downloads folder.",
   ],
   [
     "Reading goals",
@@ -1585,7 +1558,7 @@ function SettingsSheet({
   onTab: (tab: string) => void;
   onClose: () => void;
 }) {
-  const { s, set, openImport, toast, user, logout } = useContext(LibCtx);
+  const { s, set, openImport, toast, user, logout, offline, clearOffline } = useContext(LibCtx);
   const goalInput = (label: string, value: number, max: number, onPick: (n: number) => void) => (
     <NumberField
       label={label}
@@ -1676,6 +1649,26 @@ function SettingsSheet({
           </button>
         </SettingRow>
         <SettingRow
+          title="Offline books"
+          text={
+            canWorkOffline()
+              ? `${s.books.filter((b) => filesOf(b).length && filesOf(b).every((f) => offline.has(f))).length} kept on this device. Use the cloud button on a book to download it; downloaded books open without a connection.`
+              : "Not available here: browsers only allow offline storage on a secure (https) address or on localhost."
+          }
+        >
+          {offline.size > 0 && (
+            <button
+              onClick={async () => {
+                await clearOffline();
+                toast("Removed", "Downloaded books were removed from this device.");
+              }}
+              className={controlClass}
+            >
+              Remove All
+            </button>
+          )}
+        </SettingRow>
+        <SettingRow
           title="Recent searches"
           text={`${s.recents.length} saved on the Search page.`}
         >
@@ -1691,7 +1684,6 @@ function SettingsSheet({
         </SettingRow>
         {user.admin && (
           <>
-            <WatchFolder />
             <SettingRow
               title="Tidy library"
               text="Go over every book again: move comics filed as books to Manga & Comics, clean download tags out of titles, and fingerprint files so the same file isn’t imported twice."
@@ -3888,6 +3880,14 @@ export default function Page() {
   const [editing, setEditing] = useState<string | null>(null); // book in Edit Details
   const [readingId, setReadingId] = useState<string | null>(null); // book open in the reader
   const [settingsTab, setSettingsTab] = useState<string | null>(null); // open settings modal
+  const [offline, setOffline] = useState(new Set<string>()); // book files kept on this device
+  const [downloading, setDownloading] = useState(new Set<string>()); // book ids being fetched
+  const userId = useRef(0);
+  const carry = useRef<Batch | null>(null); // changes from an earlier offline visit, not sent yet
+  useEffect(() => {
+    registerWorker();
+    downloadedFiles().then(setOffline);
+  }, []);
 
   const load = async () => {
     try {
@@ -3895,8 +3895,15 @@ export default function Page() {
       if (res.status === 401) return setAuth("signin");
       const body = await res.json();
       const state: Saved = { ...INITIAL, ...body.prefs, books: body.books, log: body.log };
-      synced.current = latest.current = state;
-      setS(state);
+      // Changes that couldn't be sent last time are shown again and go out with the next save.
+      userId.current = body.user.id;
+      carry.current = loadPending(body.user.id);
+      const shown = carry.current ? applyBatch(state, carry.current) : state;
+      synced.current = state;
+      latest.current = shown;
+      setS(shown);
+      // The service worker answered from its copy: the server can't be reached.
+      if (res.headers.get("X-From-Cache")) setSaving("failing");
       setAuth(body.user);
       setSavedAt(Date.now());
       loadSocial();
@@ -3914,7 +3921,8 @@ export default function Page() {
   const flush = async (keepalive = false) => {
     if (sending.current) return;
     const snapshot = latest.current;
-    const batch = diff(synced.current, snapshot);
+    const carried = carry.current;
+    const batch = mergeBatch(carried, diff(synced.current, snapshot));
     if (!batch) return;
     sending.current = true;
     merges.current = [];
@@ -3928,9 +3936,20 @@ export default function Page() {
       if (!res.ok) throw new Error(`Save failed: ${res.status}`);
       // Anything the server told us during the request was merged into the old baseline; replay it.
       synced.current = merges.current.reduce((state, fn) => fn(state), snapshot);
+      carry.current = null;
+      savePending(userId.current, null);
+      // Reading time that waited offline is on the server now; count it here as well.
+      if (carried?.time)
+        merge((state) => {
+          const log = { ...state.log };
+          for (const [day, seconds] of Object.entries(carried.time!)) log[day] = (log[day] ?? 0) + seconds;
+          return { ...state, log };
+        });
       setSaving("ok");
       setSavedAt(Date.now());
     } catch {
+      // Kept on the device, so closing the app offline doesn't lose it.
+      savePending(userId.current, batch);
       setSaving("failing");
       setTimeout(flush, 5000);
     } finally {
@@ -4173,7 +4192,43 @@ export default function Page() {
     logout: async () => {
       await flush();
       await authCall({ action: "logout" });
+      await forgetLibrary();
       location.reload();
+    },
+    offline,
+    downloading,
+    keepOffline: async (book) => {
+      const files = filesOf(book);
+      if (!canWorkOffline())
+        return toast(
+          "Not Available Here",
+          "Browsers only allow offline storage on a secure (https) address or on localhost.",
+        );
+      const mark = (on: boolean) =>
+        setDownloading((prev) => {
+          const next = new Set(prev);
+          if (on) next.add(book.id);
+          else next.delete(book.id);
+          return next;
+        });
+      if (files.every((f) => offline.has(f))) await removeDownloads(files);
+      else {
+        mark(true);
+        try {
+          await download(files);
+          warmReader(); // the reader's own code has to be on the device too
+          toast("Downloaded", `“${book.title}” can now be opened without a connection.`);
+        } catch {
+          await removeDownloads(files); // no half-downloaded audiobooks
+          toast("Not Downloaded", "The file couldn’t be fetched, or this device is out of space.");
+        }
+        mark(false);
+      }
+      setOffline(await downloadedFiles());
+    },
+    clearOffline: async () => {
+      await removeDownloads([...offline]);
+      setOffline(new Set());
     },
     openImport: () => setImporting(true),
     importFiles,
@@ -4303,17 +4358,63 @@ export default function Page() {
     return n ? [`${n} ${noun}${n === 1 ? "" : "s"}`] : [];
   };
 
-  const navButton = (id: string, label: string, icon: IconName) => (
+  const navButton = (id: string, label: string, icon: IconName, renameKey?: string) => (
     <button
       key={id}
       onClick={() => go(id)}
-      onDoubleClick={() => id.startsWith("c:") && setRenaming(id.slice(2))}
+      onDoubleClick={() => renameKey && setRenaming(renameKey)}
       className={`${itemClass} ${view === id ? "bg-[#737373]" : "hover:bg-white/5"}`}
     >
       <Icon name={icon} />
       <span className="truncate">{label}</span>
     </button>
   );
+  /** A shelf in the sidebar, your own or a shared one: renamed in place, with a ••• menu on hover. */
+  const shelfRow = (
+    key: string, // also what `renaming` holds while this row is being renamed
+    viewId: string,
+    name: string,
+    icon: IconName,
+    editable: boolean,
+    onRename: (name: string) => void,
+    onDelete: () => void,
+  ) =>
+    renaming === key ? (
+      <div key={key} className={`${itemClass} bg-[#737373]`}>
+        <Icon name={icon} />
+        <input
+          autoFocus
+          aria-label="Shelf name"
+          defaultValue={name}
+          maxLength={60}
+          onFocus={(e) => e.target.select()}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          onBlur={(e) => {
+            const next = e.target.value.trim();
+            if (next && next !== name) onRename(next);
+            setRenaming(null);
+          }}
+          className="w-full min-w-0 bg-[#1e1e1e] px-1 outline-none"
+        />
+      </div>
+    ) : (
+      <div key={key} className="group relative [&>button]:pr-8">
+        {navButton(viewId, name, icon, editable ? key : undefined)}
+        {editable && (
+          <div className="absolute top-[6px] right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 max-md:opacity-100">
+            <Popover
+              label={`Options for ${name}`}
+              button={DOTS}
+              buttonClass="block py-[7px] text-[#d0d0d0] hover:text-white"
+              panelClass="top-6 right-0 w-[150px]"
+            >
+              <MenuItem icon="pencil" label="Rename" onClick={() => setRenaming(key)} />
+              <MenuItem icon="trash" label="Delete" onClick={onDelete} />
+            </Popover>
+          </div>
+        )}
+      </div>
+    );
 
   return (
     <LibCtx value={lib}>
@@ -4333,42 +4434,17 @@ export default function Page() {
             {LIBRARY_NAV.map((n) => navButton(n.id, n.label, n.icon))}
             <h3 className={headingClass}>My Shelves</h3>
             {s.collections.map((c) =>
-              renaming === c.id ? (
-                <div key={c.id} className={`${itemClass} bg-[#737373]`}>
-                  <Icon name="lines" />
-                  <input
-                    autoFocus
-                    aria-label="Shelf name"
-                    defaultValue={c.name}
-                    onFocus={(e) => e.target.select()}
-                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                    onBlur={(e) => {
-                      const name = e.target.value.trim() || c.name;
-                      set((prev) => ({
-                        collections: prev.collections.map((x) =>
-                          x.id === c.id ? { ...x, name } : x,
-                        ),
-                      }));
-                      setRenaming(null);
-                    }}
-                    className="w-full min-w-0 bg-[#1e1e1e] px-1 outline-none"
-                  />
-                </div>
-              ) : (
-                <div key={c.id} className="group relative [&>button]:pr-8">
-                  {navButton(`c:${c.id}`, c.name, "lines")}
-                  <div className="absolute top-[6px] right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 max-md:opacity-100">
-                    <Popover
-                      label={`Options for ${c.name}`}
-                      button={DOTS}
-                      buttonClass="block py-[7px] text-[#d0d0d0] hover:text-white"
-                      panelClass="top-6 right-0 w-[150px]"
-                    >
-                      <MenuItem icon="pencil" label="Rename" onClick={() => setRenaming(c.id)} />
-                      <MenuItem icon="trash" label="Delete" onClick={() => deleteShelf(c.id)} />
-                    </Popover>
-                  </div>
-                </div>
+              shelfRow(
+                c.id,
+                `c:${c.id}`,
+                c.name,
+                "lines",
+                true,
+                (name) =>
+                  set((prev) => ({
+                    collections: prev.collections.map((x) => (x.id === c.id ? { ...x, name } : x)),
+                  })),
+                () => deleteShelf(c.id),
               ),
             )}
             <button
@@ -4379,13 +4455,29 @@ export default function Page() {
               New Shelf
             </button>
             <h3 className={headingClass}>Shared Shelves</h3>
-            {social.shelves.map((c) => navButton(`x:${c.id}`, c.name, "user"))}
+            {social.shelves.map((c) =>
+              shelfRow(
+                `x:${c.id}`,
+                `x:${c.id}`,
+                c.name,
+                "user",
+                c.mine,
+                (name) => lib.socialCall({ action: "renameShelf", id: c.id, name }),
+                async () => {
+                  if (!confirm(`Delete the shared shelf “${c.name}” for everyone? Its books stay in the library.`))
+                    return;
+                  await lib.socialCall({ action: "deleteShelf", id: c.id });
+                  if (view === `x:${c.id}`) setView("all");
+                },
+              ),
+            )}
             <button
               onClick={async () => {
-                const name = prompt("Name for the shared shelf. Everyone on this server can see it and add books.");
-                if (!name?.trim()) return;
-                const made = await lib.socialCall({ action: "newShelf", name });
-                if (made) go(`x:${made.id}`);
+                // Made with a placeholder name and put straight into renaming, like your own shelves.
+                const made = await lib.socialCall({ action: "newShelf", name: "Untitled Shelf" });
+                if (!made) return;
+                go(`x:${made.id}`);
+                setRenaming(`x:${made.id}`);
               }}
               className={`${itemClass} hover:bg-white/5`}
             >
@@ -4538,10 +4630,7 @@ export default function Page() {
                         label="Rename Shelf"
                         icon="pencil"
                         checked={false}
-                        onClick={() => {
-                          const name = prompt("New name for this shared shelf.", sharedShelf.name);
-                          if (name?.trim()) lib.socialCall({ action: "renameShelf", id: sharedShelf.id, name });
-                        }}
+                        onClick={() => setRenaming(`x:${sharedShelf.id}`)}
                       />
                     </>
                   )}
