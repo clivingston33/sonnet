@@ -155,14 +155,15 @@ function Shell({
             </button>
           ))}
         {panel && (
-          <aside className="absolute inset-y-0 right-0 z-10 flex w-[300px] max-w-full flex-col border-l border-white/10 bg-[#1b1b1b] text-[#f2f2f2]">
-            <div className="flex items-center justify-between py-2 pr-2 pl-4">
-              <h3 className="text-[14px] font-bold">{panel.title}</h3>
+          // A floating rounded card, like the app's sidebar.
+          <aside className="absolute inset-y-0 right-[9px] z-10 mb-[9px] flex w-[300px] max-w-[calc(100%-18px)] flex-col rounded-2xl border border-white/10 bg-[#1b1b1b] text-[#f2f2f2] shadow-2xl">
+            <div className="flex items-center justify-between pt-[13px] pr-[9px] pb-[7px] pl-4">
+              <h3 className="text-[13.500px] font-bold">{panel.title}</h3>
               <button aria-label="Close panel" onClick={onPanelClose} className={iconButton}>
                 <Icon name="x" className="size-4" />
               </button>
             </div>
-            <div className="min-h-0 grow overflow-y-auto p-2">{panel.body}</div>
+            <div className="min-h-0 grow overflow-y-auto px-[9px] pb-[9px]">{panel.body}</div>
           </aside>
         )}
       </div>
@@ -225,7 +226,8 @@ function Appearance({ prefs, onPrefs }: Pick<Props, "prefs" | "onPrefs">) {
   );
 }
 
-const rowClass = "block w-full rounded-lg px-2 py-[6px] text-left text-[13px] hover:bg-white/10";
+const rowClass =
+  "mb-[2px] block w-full rounded-lg px-[10px] py-[7px] text-left text-[13.500px] font-medium hover:bg-white/5";
 const emptyClass = "px-2 py-3 text-[13px] text-[#8c8c8c]";
 
 /** A list with a delete button per row, used for bookmarks and highlights. */

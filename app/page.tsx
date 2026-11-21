@@ -109,16 +109,25 @@ type Lib = {
 };
 const LibCtx = createContext<Lib>(null!);
 
-function BookMenu({ book, align = "right-0" }: { book: Book; align?: string }) {
+function BookMenu({
+  book,
+  align = "right-0",
+  floating = false,
+}: {
+  book: Book;
+  align?: string;
+  floating?: boolean; // inside a scrolling row: place the menu against the window
+}) {
   const { s, set, toggleWant, toggleFinished, toast, newCollection, edit, sortable, move, user } =
     useContext(LibCtx);
   return (
     <Popover
       label={`Options for ${book.title}`}
       button={DOTS}
-      buttonClass="block py-1 text-[#b4b4b4] hover:text-white"
+      buttonClass="block shrink-0 py-1 text-[#b4b4b4] hover:text-white"
       // ponytail: opens downward only; flip upward near the viewport bottom if it gets annoying
-      panelClass={`top-5 ${align} w-[230px]`}
+      panelClass={floating ? "w-[230px]" : `top-5 ${align} w-[230px]`}
+      floating={floating}
     >
       <MenuItem
         icon={book.want ? "minus" : "want"}
@@ -1890,19 +1899,85 @@ function useCatalogue() {
         b.olKey === f.key ||
         (lower(b.title) === lower(f.title) && lower(b.author) === lower(f.author)),
     );
-  const toggle = async (f: Found) => {
-    const mine = mineOf(f);
-    if (mine) return toggleWant(mine);
+  /** Puts the book in the library (on Want to Read) and returns it; null when the catalogue can't be reached. */
+  const add = async (f: Found): Promise<Book | null> => {
     const res = await fetch("/api/discover", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: f.key }),
     }).catch(() => null);
-    if (!res?.ok) return toast("Couldn’t Add", "The catalogue can’t be reached right now.");
-    addBook((await res.json()).book);
-    toast("Added", `“${f.title}” was added to your Want to Read list.`);
+    if (!res?.ok) {
+      toast("Couldn’t Add", "The catalogue can’t be reached right now.");
+      return null;
+    }
+    const { book } = await res.json();
+    addBook(book);
+    return book;
   };
-  return { mineOf, toggle };
+  const toggle = async (f: Found) => {
+    const mine = mineOf(f);
+    if (mine) return toggleWant(mine);
+    if (await add(f)) toast("Added", `“${f.title}” was added to your Want to Read list.`);
+  };
+  return { mineOf, toggle, add };
+}
+
+/** The ••• menu of a catalogue book. Once the book is in the library it is the regular book menu. */
+function FoundMenu({ found }: { found: Found }) {
+  const { s, set, preview, toast } = useContext(LibCtx);
+  const { mineOf, toggle, add } = useCatalogue();
+  const mine = mineOf(found);
+  if (mine) return <BookMenu book={mine} floating />;
+  return (
+    <Popover
+      label={`Options for ${found.title}`}
+      button={DOTS}
+      buttonClass="block shrink-0 py-1 text-[#b4b4b4] hover:text-white"
+      panelClass="w-[230px]"
+      floating
+    >
+      <MenuItem icon="want" label="Add to Want to Read" onClick={() => toggle(found)} />
+      <MenuItem
+        icon="finished"
+        label="Mark as Finished"
+        onClick={async () => {
+          const book = await add(found);
+          if (!book) return;
+          set((prev) => ({
+            books: prev.books.map((b) =>
+              b.id === book.id ? { ...b, want: false, finished: dayKey(new Date()) } : b,
+            ),
+          }));
+          toast("Finished", `“${found.title}” was added to your Finished list.`);
+        }}
+      />
+      <MenuItem icon="book" label="View Details" onClick={() => preview(found)} />
+      {s.collections.length > 0 && (
+        <>
+          {MENU_RULE}
+          <p className="px-[6px] pt-1 pb-[3px] text-[11px] font-bold text-[#777]">Add to Shelf</p>
+          {s.collections.map((c) => (
+            <MenuItem
+              key={c.id}
+              label={c.name}
+              checked={false}
+              onClick={async () => {
+                // A book without a file is kept by being on Want to Read, so it goes there too.
+                const book = await add(found);
+                if (!book) return;
+                set((prev) => ({
+                  collections: prev.collections.map((x) =>
+                    x.id === c.id ? { ...x, bookIds: [...x.bookIds, book.id] } : x,
+                  ),
+                }));
+                toast("Added", `“${found.title}” was added to ${c.name} and Want to Read.`);
+              }}
+            />
+          ))}
+        </>
+      )}
+    </Popover>
+  );
 }
 
 /** A catalogue book's cover, `w` wide. Pulses grey until the image has arrived. */
@@ -2239,7 +2314,7 @@ function FoundBooks({
       </button>
     );
   };
-  const want = (f: Found, extra: string) => <WantButton found={f} className={extra} />;
+  const want = (f: Found) => <FoundMenu found={f} />;
 
   const content =
     as === "terms" ? (
@@ -2263,7 +2338,7 @@ function FoundBooks({
           <div key={f.key} className="border-b border-white/10 py-[2px]">
             <div className="flex items-center gap-2 rounded-lg pr-2 hover:bg-white/5">
               <FoundResult found={f} w={56} />
-              {want(f, "")}
+              {want(f)}
             </div>
           </div>
         ))}
@@ -2276,8 +2351,10 @@ function FoundBooks({
             <p className="mt-2 truncate font-semibold" title={f.title}>
               {f.title}
             </p>
-            <p className="truncate text-[#9a9a9a]">{f.author}</p>
-            {want(f, "mt-2 w-full")}
+            <div className="flex items-center justify-between gap-2 text-[#9a9a9a]">
+              <span className="truncate">{f.author}</span>
+              {want(f)}
+            </div>
           </div>
         ))}
       </Scroller>

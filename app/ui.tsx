@@ -96,21 +96,28 @@ export const DOTS = (
   </svg>
 );
 
-/** Button that toggles a floating menu; any click inside or outside the menu closes it. */
+/**
+ * Button that toggles a floating menu; any click inside or outside the menu closes it.
+ * `floating` places the menu against the window instead of the button's box, for buttons
+ * inside a scrolling row that would otherwise cut the menu off; `panelClass` is then only its width.
+ */
 export function Popover({
   label,
   button,
   buttonClass,
   panelClass,
+  floating = false,
   children,
 }: {
   label: string;
   button: ReactNode;
   buttonClass: string;
   panelClass: string; // position + width
+  floating?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [at, setAt] = useState<React.CSSProperties>();
   return (
     <div
       className="relative"
@@ -119,7 +126,17 @@ export function Popover({
       <button
         aria-label={label}
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onClick={(e) => {
+          const box = e.currentTarget.getBoundingClientRect();
+          // Below the button, or above it in the lower half of the window; kept clear of the right edge.
+          setAt({
+            left: Math.max(8, Math.min(box.left, window.innerWidth - 248)),
+            ...(box.top > window.innerHeight / 2
+              ? { bottom: window.innerHeight - box.top + 4 }
+              : { top: box.bottom + 4 }),
+          });
+          setOpen(!open);
+        }}
         className={`relative ${open ? "z-30" : ""} ${buttonClass}`}
       >
         {button}
@@ -130,7 +147,8 @@ export function Popover({
           <div
             role="menu"
             onClick={() => setOpen(false)}
-            className={`absolute z-30 rounded-2xl border border-white/15 bg-[#222] p-[5px] font-sans font-normal text-[#f2f2f2] shadow-2xl ${panelClass}`}
+            style={floating ? at : undefined}
+            className={`${floating ? "fixed max-h-[70vh] overflow-y-auto" : "absolute"} z-30 rounded-2xl border border-white/15 bg-[#222] p-[5px] font-sans font-normal text-[#f2f2f2] shadow-2xl ${panelClass}`}
           >
             {children}
           </div>
