@@ -73,16 +73,13 @@ export async function PATCH(req: Request) {
 
   for (const [id, change] of Object.entries(isFields(batch.books) ? batch.books : {})) {
     if (!isFields(change) || !getBook(id)) continue;
-    const shared = pick(change.shared, EDITABLE_FIELDS);
-    // The only change of type on offer is between the Books and the Manga & Comics shelves.
-    if ("kind" in shared && shared.kind !== "book" && shared.kind !== "comic") delete shared.kind;
-    if (Object.keys(shared).length) {
-      // A hand edit wins over later online lookups.
-      const locked = Object.fromEntries(Object.keys(shared).map((key) => [key, true]));
-      patchBook(id, { ...shared, locked });
-    }
-    // `info: null` (sent after a title or author edit) clears the cached lookup so it runs again.
-    if (isFields(change.shared) && change.shared.info === null) patchBook(id, { info: null });
+    // Edited details (title, author, description, series, tags) are the editor's own view of the
+    // book: they are kept with that profile and laid over the shared record, for them only.
+    const edits = pick(change.shared, EDITABLE_FIELDS);
+    // Which shelf a file belongs on (Books or Manga & Comics) is a fact about the file, so it is shared.
+    if (edits.kind === "book" || edits.kind === "comic") patchBook(id, { kind: edits.kind });
+    delete edits.kind;
+    if (Object.keys(edits).length) upsertMine.run(user.id, id, JSON.stringify(edits));
     const mine = pick(change.mine, USER_FIELDS);
     if (Object.keys(mine).length) upsertMine.run(user.id, id, JSON.stringify(mine));
   }

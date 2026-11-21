@@ -82,7 +82,6 @@ export type Saved = {
   dailyGoal: number; // minutes
   yearlyGoal: number; // books
   lookups: boolean; // fetch covers, descriptions and ratings online
-  adult: boolean; // include 18+ titles in suggestions and catalogue search
   stack: boolean; // collapse the books of a series into one stack on the library shelves
   reader: ReaderPrefs;
 };
@@ -115,7 +114,6 @@ export const PREF_KEYS = [
   "dailyGoal",
   "yearlyGoal",
   "lookups",
-  "adult",
   "stack",
   "reader",
 ] as const;
@@ -129,7 +127,6 @@ export const DEFAULT_PREFS: Pick<Saved, (typeof PREF_KEYS)[number]> = {
   dailyGoal: 5,
   yearlyGoal: 3,
   lookups: true,
-  adult: false,
   stack: false,
   reader: { fontSize: 100, theme: "dark" },
 };

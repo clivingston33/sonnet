@@ -118,7 +118,7 @@ function BookMenu({
   align?: string;
   floating?: boolean; // inside a scrolling row: place the menu against the window
 }) {
-  const { s, set, toggleWant, toggleFinished, toast, newCollection, edit, sortable, move, user } =
+  const { s, set, toggleWant, toggleFinished, toast, newCollection, edit, sortable, move, user, setDetail } =
     useContext(LibCtx);
   return (
     <Popover
@@ -139,6 +139,7 @@ function BookMenu({
         label={book.finished ? "Mark as Unfinished" : "Mark as Finished"}
         onClick={() => toggleFinished(book)}
       />
+      <MenuItem icon="book" label="View Details" onClick={() => setDetail({ ids: [book.id], id: book.id })} />
       <MenuItem icon="pencil" label="Edit Details…" onClick={() => edit(book.id)} />
       {/* Manga in EPUB form that wasn't recognised as such, or a book that was mistaken for one. */}
       {/\.(epub|cbz)$/.test(book.file ?? "") && (
@@ -1043,7 +1044,7 @@ const HELP: [string, string][] = [
   ],
   [
     "Finding new books",
-    "Search shows trending and new books from Open Library and manga and manhwa from AniList, and searches both as you type. Want to Read on one of them adds it to your Want to Read list without a file; removing it from the list takes it away again. 18+ titles are left out of these lists; what you import yourself is never filtered.",
+    "Search shows trending and new books from Open Library and manga and manhwa from AniList, and searches both as you type. Want to Read in a book’s ••• menu adds it to your Want to Read list without a file; removing it from the list takes it away again. On your shelves, click a book to select it and double-click to open it; View Details and Edit Details are in its ••• menu. Details you edit change the book for your profile only.",
   ],
   [
     "Manga and comics",
@@ -1461,17 +1462,6 @@ function SettingsSheet({
             aria-label="Online lookups"
             checked={s.lookups}
             onChange={(e) => set(() => ({ lookups: e.target.checked }))}
-          />
-        </SettingRow>
-        <SettingRow
-          title="Show 18+ suggestions"
-          text="Include adult titles in Discover, the genre and manga rows, and catalogue search, for this profile. Off by default. Books you import are never filtered either way."
-        >
-          <input
-            type="checkbox"
-            aria-label="Show 18+ suggestions"
-            checked={s.adult}
-            onChange={(e) => set(() => ({ adult: e.target.checked }))}
           />
         </SettingRow>
       </>
@@ -2638,18 +2628,28 @@ function Search() {
   );
 }
 
-/** A cover that opens the detail sheet. A div, not a button, so the tile around it stays draggable. */
+/**
+ * A cover on a shelf. One click selects it (a light halo, until you click elsewhere); a double
+ * click or Enter opens the book to read or listen. Details are in its ••• menu.
+ * A div, not a button, so the tile around it stays draggable.
+ */
 function CoverButton({ book, w, ids }: { book: Book; w: number; ids: string[] }) {
-  const { setDetail } = useContext(LibCtx);
-  const open = () => setDetail({ ids, id: book.id });
+  const { setDetail, play, read } = useContext(LibCtx);
+  const open = () =>
+    !book.file
+      ? setDetail({ ids, id: book.id }) // nothing to open: show what is known about it
+      : book.kind === "audiobook"
+        ? play(book.id)
+        : read(book.id);
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={`Details for ${book.title}`}
-      onClick={open}
+      aria-label={book.title}
+      title="Double-click to open"
+      onDoubleClick={open}
       onKeyDown={(e) => e.key === "Enter" && open()}
-      className="w-fit shrink-0 cursor-pointer"
+      className="w-fit shrink-0 cursor-pointer rounded-[5px] outline-none focus:bg-white/20 focus:shadow-[0_0_0_7px_rgba(255,255,255,0.2)]"
     >
       <Cover book={book} w={w} />
     </div>
@@ -3439,7 +3439,7 @@ function ImportPanel({
 
 /** Sign in to an existing account, or create one. */
 function SignIn({ onDone }: { onDone: () => void }) {
-  const [options, setOptions] = useState({ first: false, signups: true, bypass: false });
+  const [options, setOptions] = useState({ first: false, signups: true });
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [sent, setSent] = useState<string | null>(null); // email a reset code was requested for
   const [show, setShow] = useState(false);
@@ -3643,26 +3643,6 @@ function SignIn({ onDone }: { onDone: () => void }) {
           <p className="mt-4 text-center text-[12px] text-[#8c8c8c]">
             New accounts are turned off here. Ask the server’s admin to let you in.
           </p>
-        )}
-        {options.bypass && (
-          <>
-            <div className="my-5 flex items-center gap-3 text-[12px] text-[#8c8c8c]">
-              <hr className="grow border-white/10" />
-              or
-              <hr className="grow border-white/10" />
-            </div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => send({ action: "bypass" })}
-              className={`${controlClass} !h-[38px] w-full`}
-            >
-              Continue without an account
-            </button>
-            <p className="mt-2 text-center text-[12px] text-[#8c8c8c]">
-              For testing: signs you in as a shared guest. Off in production unless AUTH_BYPASS=1.
-            </p>
-          </>
         )}
       </div>
     </main>

@@ -53,15 +53,6 @@ export function genreOf(subjects: unknown) {
   }
 }
 
-/** True when a book's title or subjects mark it as 18+. Such books are kept out of recommendations and search. */
-export const isAdult = (title: unknown, subjects: unknown) =>
-  [title, ...(Array.isArray(subjects) ? subjects : [])].some((s) =>
-    // ponytail: a word list, because Open Library has no 18+ flag; expect the odd miss
-    /\b(erotic\w*|pornograph\w*|sexually explicit|adult fiction|hentai|bdsm|cuckold\w*|smut|xxx|nsfw|fetish\w*)\b/i.test(
-      String(s),
-    ),
-  );
-
 export type Manga = {
   id: number;
   title: string;

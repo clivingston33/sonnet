@@ -9,9 +9,6 @@ export type User = { id: number; account: number; name: string; email: string; a
 
 const DAY = 60 * 60 * 24; // seconds
 
-/** Skipping sign-in is for trying the app out: always available in development, opt-in otherwise. */
-export const BYPASS = process.env.AUTH_BYPASS === "1" || process.env.NODE_ENV !== "production";
-
 export function hashPassword(password: string) {
   const salt = randomBytes(16);
   return `${salt.toString("hex")}:${scryptSync(password, salt, 64).toString("hex")}`;

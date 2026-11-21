@@ -14,9 +14,6 @@ The first account created becomes the admin. Other people create their own accou
 sign-in page until the admin turns that off under Settings → Account. Requires Node 24 (it
 uses the built-in `node:sqlite`).
 
-The sign-in page offers "Continue without an account" (a shared guest) in development, and in
-production only when `AUTH_BYPASS=1` is set. Leave it unset on a real server.
-
 Forgotten passwords: the server sends no email. "Forgot password?" creates an 8-digit code,
 valid for 30 minutes, that the admin sees under Settings → Account and that is printed to the
 server log (`Password reset code for …`). An admin who is locked out reads it from the log.
@@ -25,8 +22,8 @@ an account for 15 minutes.
 
 Online data needs no keys: Open Library (books, covers, ratings, genres), Wikidata (series),
 Audible's public catalogue (audiobook narrators and series) and AniList (manga and manhwa).
-18+ titles are left out of search and recommendations unless a profile turns on "Show 18+
-suggestions" (Settings → Online); uploads are never filtered.
+Adult manga (hentai) is never shown: AniList flags it and it is always excluded. Books are not
+filtered, and neither is anything you upload.
 Reviews are written by the people on the server and stored in its database.
 
 Profiles: one sign-in can hold up to 8 profiles (Settings → Account), each with its own shelves,
@@ -47,8 +44,9 @@ covers, and Restore puts one back; the book files in `library/` are not in it an
 by hand. Importing a file that is already there is skipped, and Tidy Now re-files older books
 with the current rules. `MAX_UPLOAD_MB` caps a single upload (default 2048).
 
-Books and their metadata are shared by everyone on the server. Shelves, ratings, progress,
-bookmarks, highlights, goals and reading time belong to each account.
+Books are shared by everyone on the server. Shelves, ratings, progress, bookmarks, highlights,
+goals, reading time and any details a person edits (title, author, description, series, tags)
+belong to that person's profile.
 
 ## Tests
 

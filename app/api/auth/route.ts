@@ -1,6 +1,5 @@
 import { randomInt, randomUUID } from "node:crypto";
 import {
-  BYPASS,
   checkPassword,
   crossSite,
   currentUser,
@@ -45,7 +44,6 @@ export async function GET(req: Request) {
   return Response.json({
     first, // no real account yet: the next one created becomes the admin
     signups: first || signupsOpen(),
-    bypass: BYPASS,
     user,
     // Everyone who shares this sign-in, the account's own profile first.
     profiles: user
@@ -69,7 +67,7 @@ export async function GET(req: Request) {
   });
 }
 
-/** POST { action: "register" | "login" | "bypass" | "logout" | "password" | "signups" | "removeUser", ... } */
+/** POST { action: "register" | "login" | "logout" | "password" | "signups" | "removeUser", ... } */
 export async function POST(req: Request) {
   if (crossSite(req)) return fail("Forbidden", 403);
   const body: Record<string, unknown> = await req.json().catch(() => ({}));
@@ -110,13 +108,6 @@ export async function POST(req: Request) {
     }
     misses.delete(email);
     return signIn(Number(row.id), body.remember === true);
-  }
-
-  // Signs in as a shared guest without a password, for trying the app out.
-  if (body.action === "bypass") {
-    if (!BYPASS) return fail("Not available on this server.", 403);
-    const id = idOf("guest@local") ?? create("Guest", "", "guest@local", crypto.randomUUID());
-    return signIn(Number(id), false);
   }
 
   // There is no mail server, so the code goes to the admin (Settings → Account) and the server log.
