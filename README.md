@@ -30,7 +30,14 @@ Profiles: one sign-in can hold up to 8 profiles (Settings → Account), each wit
 progress and stats, chosen from a "Who's reading?" screen. A profile may set a PIN; signing in
 with the account password always opens the account's own profile.
 
-With Docker: `docker compose up --build` (the image has not been built yet; see the Dockerfile).
+With Docker: `docker compose up --build`.
+
+Home server: deployed by Coolify (project "Books") from this repository's `main` branch with the
+Dockerfile, reading the repo through a read-only deploy key. Data is in the Docker volumes
+mounted at `/data` and `/library`. Coolify's Cloudflare tunnel publishes it at
+https://books.example.com. To update: push to `main`, then press Redeploy in Coolify.
+Cloudflare caps uploads at 100 MB on the free plan, so larger files (audiobooks) have to be
+imported from the home network.
 
 ## Data
 
