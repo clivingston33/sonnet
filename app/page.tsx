@@ -1055,7 +1055,7 @@ const HELP: [string, string][] = [
   ],
   [
     "Profiles",
-    "One sign-in can hold up to 8 profiles, each with its own shelves, progress, goals, stats and reviews. Add them under Settings → Account, and change who’s reading with Switch Profile in the account menu. Books of one series can be collapsed into a stack with Stack Series in a shelf’s ••• menu.",
+    "One sign-in can hold up to 8 profiles, each with its own shelves, progress, goals, stats and reviews. Add them under Settings → Account, and change who’s reading with Switch Profile in the account menu. A profile can set a PIN of 4 to 8 digits there; a forgotten PIN is cleared with the account password. Books of one series can be collapsed into a stack with Stack Series in a shelf’s ••• menu.",
   ],
   [
     "Forgotten password",
@@ -1083,7 +1083,7 @@ const HELP: [string, string][] = [
   ],
   [
     "Your data",
-    "Everything is saved on the server under your account, so any browser you sign in from shows the same library, progress and stats. Books are shared with everyone on the server; shelves, ratings, progress and goals are your own.",
+    "Everything is saved on the server under your account, so any browser you sign in from shows the same library, progress and stats. Books are shared with everyone on the server; shelves, ratings, progress and goals are your own. Importing a file that is already in the library is skipped. The admin can download a backup, restore one and tidy the library under Settings → Library. After eight wrong passwords an account is locked for 15 minutes.",
   ],
 ];
 
@@ -1103,7 +1103,7 @@ type Account = {
   admin: boolean;
   reset?: string | null;
 };
-type Profile = { id: number; name: string };
+type Profile = { id: number; name: string; locked?: number }; // locked: has a PIN
 
 const loadProfiles = (): Promise<Profile[]> =>
   fetch("/api/auth")
@@ -1126,20 +1126,40 @@ function Profiles() {
         <SettingRow
           key={p.id}
           title={p.name}
-          text={p.id === user.id ? "In use now" : p.id === user.account ? "The account’s own profile" : "Profile"}
+          text={`${p.id === user.id ? "In use now" : p.id === user.account ? "The account’s own profile" : "Profile"}${p.locked ? " • PIN" : ""}`}
         >
-          {p.id !== user.id && p.id !== user.account && (
-            <button
-              onClick={async () => {
-                if (!confirm(`Remove ${p.name}? Their shelves, ratings and progress are deleted.`)) return;
-                setError(await authCall({ action: "removeProfile", id: p.id }));
-                load();
-              }}
-              className={`${controlClass} text-[#ff6b61]`}
-            >
-              Remove
-            </button>
-          )}
+          <div className="flex gap-2">
+            {/* Your own PIN is yours to set; someone else's forgotten PIN is cleared with the account password. */}
+            {(p.id === user.id || !!p.locked) && (
+              <button
+                onClick={async () => {
+                  const mine = p.id === user.id;
+                  const pin =
+                    mine && !p.locked ? prompt("Choose a PIN of 4 to 8 digits for this profile.") : "";
+                  if (pin === null) return;
+                  const password = mine ? undefined : prompt("Enter the account password to clear this PIN.");
+                  if (password === null) return;
+                  setError(await authCall({ action: "setPin", id: p.id, pin, password }));
+                  load();
+                }}
+                className={controlClass}
+              >
+                {p.locked ? (p.id === user.id ? "Remove PIN" : "Clear PIN") : "Set PIN"}
+              </button>
+            )}
+            {p.id !== user.id && p.id !== user.account && (
+              <button
+                onClick={async () => {
+                  if (!confirm(`Remove ${p.name}? Their shelves, ratings and progress are deleted.`)) return;
+                  setError(await authCall({ action: "removeProfile", id: p.id }));
+                  load();
+                }}
+                className={`${controlClass} text-[#ff6b61]`}
+              >
+                Remove
+              </button>
+            )}
+          </div>
         </SettingRow>
       ))}
       <SettingRow
@@ -1188,7 +1208,7 @@ function ProfilePicker({
   onManage,
 }: {
   auto: boolean; // shown right after signing in: skipped when there is only one profile
-  onPick: (id: number) => void;
+  onPick: (id: number, pin?: string) => void;
   onClose: () => void;
   onManage: () => void;
 }) {
@@ -1211,7 +1231,11 @@ function ProfilePicker({
         {profiles.map((p) => (
           <button
             key={p.id}
-            onClick={() => (p.id === user.id ? onClose() : onPick(p.id))}
+            onClick={() => {
+              if (p.id === user.id) return onClose();
+              const pin = p.locked ? prompt(`Enter ${p.name}’s PIN.`) : undefined;
+              if (pin !== null) onPick(p.id, pin);
+            }}
             className="group flex w-[120px] flex-col items-center gap-3"
           >
             <span className="flex size-[120px] items-center justify-center rounded-2xl bg-[#3a3a3c] font-serif text-[48px] font-bold ring-white group-hover:ring-2 group-focus-visible:ring-2">
@@ -1291,7 +1315,7 @@ function Credentials({
 
 /** Admin only: the people who can sign in to this server. */
 function Users() {
-  const { user } = useContext(LibCtx);
+  const { user, toast } = useContext(LibCtx);
   const [users, setUsers] = useState<Account[]>([]);
   const [signups, setSignups] = useState(true);
   const load = () =>
@@ -1327,19 +1351,33 @@ function Users() {
           title={u.name}
           text={`${u.email} • ${u.admin ? "Admin" : "Reader"}${u.reset ? ` • Forgot their password: give them reset code ${u.reset}` : ""}`}
         >
-          {u.id !== user.id && (
+          <div className="flex gap-2">
             <button
               onClick={async () => {
-                if (!confirm(`Remove ${u.name}? Their shelves, ratings and progress are deleted.`))
-                  return;
-                await authCall({ action: "removeUser", id: u.id });
+                const password = prompt(`New password for ${u.name} (at least 8 characters).`);
+                if (!password) return;
+                const failed = await authCall({ action: "setPassword", id: u.id, password });
+                toast(failed ? "Not Changed" : "Saved", failed ?? `${u.name}’s password was changed.`);
                 load();
               }}
-              className={`${controlClass} text-[#ff6b61]`}
+              className={controlClass}
             >
-              Remove
+              Set Password
             </button>
-          )}
+            {u.id !== user.account && (
+              <button
+                onClick={async () => {
+                  if (!confirm(`Remove ${u.name}? Their shelves, ratings and progress are deleted.`))
+                    return;
+                  await authCall({ action: "removeUser", id: u.id });
+                  load();
+                }}
+                className={`${controlClass} text-[#ff6b61]`}
+              >
+                Remove
+              </button>
+            )}
+          </div>
         </SettingRow>
       ))}
     </>
@@ -1413,17 +1451,30 @@ function SettingsSheet({
       </>
     ),
     online: (
-      <SettingRow
-        title="Online lookups"
-        text="Fill in missing covers, descriptions and other readers’ ratings, and show new and trending books in Search, from Open Library. The server sends it the book’s ISBN, or its title and author."
-      >
-        <input
-          type="checkbox"
-          aria-label="Online lookups"
-          checked={s.lookups}
-          onChange={(e) => set(() => ({ lookups: e.target.checked }))}
-        />
-      </SettingRow>
+      <>
+        <SettingRow
+          title="Online lookups"
+          text="Fill in missing covers, descriptions and other readers’ ratings, and show new and trending books in Search, from Open Library. The server sends it the book’s ISBN, or its title and author."
+        >
+          <input
+            type="checkbox"
+            aria-label="Online lookups"
+            checked={s.lookups}
+            onChange={(e) => set(() => ({ lookups: e.target.checked }))}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Show 18+ suggestions"
+          text="Include adult titles in Discover, the genre and manga rows, and catalogue search, for this profile. Off by default. Books you import are never filtered either way."
+        >
+          <input
+            type="checkbox"
+            aria-label="Show 18+ suggestions"
+            checked={s.adult}
+            onChange={(e) => set(() => ({ adult: e.target.checked }))}
+          />
+        </SettingRow>
+      </>
     ),
     library: (
       <>
@@ -1446,6 +1497,56 @@ function SettingsSheet({
             Clear
           </button>
         </SettingRow>
+        {user.admin && (
+          <>
+            <SettingRow
+              title="Tidy library"
+              text="Go over every book again: move comics filed as books to Manga & Comics, clean download tags out of titles, and fingerprint files so the same file isn’t imported twice."
+            >
+              <button
+                onClick={async () => {
+                  const res = await fetch("/api/admin", { method: "POST" }).catch(() => null);
+                  if (!res?.ok) return toast("Not Done", "The server couldn’t go over the library.");
+                  const { changed } = await res.json();
+                  toast("Done", `${changed} book${changed === 1 ? " was" : "s were"} updated.`);
+                  if (changed) setTimeout(() => location.reload(), 1500);
+                }}
+                className={controlClass}
+              >
+                Tidy Now
+              </button>
+            </SettingRow>
+            <SettingRow
+              title="Backup"
+              text="One zip with the database (accounts, shelves, progress, reviews) and the covers. The book files are not in it: copy the library folder for those."
+            >
+              <a href="/api/admin" download className={`${controlClass} flex items-center`}>
+                Download Backup
+              </a>
+            </SettingRow>
+            <SettingRow
+              title="Restore"
+              text="Replace this server’s database and covers with a backup. Everything changed since that backup is lost."
+            >
+              <label className={`${controlClass} flex cursor-pointer items-center text-[#ff6b61]`}>
+                Restore…
+                <input
+                  type="file"
+                  accept=".zip"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file || !confirm(`Replace everything on this server with ${file.name}?`)) return;
+                    const res = await fetch("/api/admin", { method: "PUT", body: file }).catch(() => null);
+                    if (res?.ok) return location.reload();
+                    toast("Not Restored", (await res?.json().catch(() => null))?.error ?? "The server couldn’t be reached.");
+                  }}
+                />
+              </label>
+            </SettingRow>
+          </>
+        )}
       </>
     ),
     help: HELP.map(([title, text]) => (
@@ -3745,7 +3846,14 @@ export default function Page() {
           const saved = cover && (await fetch(`/api/file?book=${book.id}`, { method: "PUT", body: cover }));
           if (saved?.ok) mergeBook(book.id, await saved.json());
         }
-        mark("done", body.merged ? `Added to “${book.title}”` : undefined);
+        mark(
+          "done",
+          body.duplicate
+            ? "Already in your library"
+            : body.merged
+              ? `Added to “${book.title}”`
+              : undefined,
+        );
       } catch (e) {
         mark("failed", e instanceof TypeError ? "Can’t reach the server" : (e as Error).message);
       }
@@ -4256,9 +4364,10 @@ export default function Page() {
               setPicking(null);
               setSettingsTab("profile");
             }}
-            onPick={async (id) => {
+            onPick={async (id, pin) => {
               await flush();
-              await authCall({ action: "switchProfile", id });
+              const failed = await authCall({ action: "switchProfile", id, pin });
+              if (failed) return toast("Not Switched", failed);
               location.reload();
             }}
           />

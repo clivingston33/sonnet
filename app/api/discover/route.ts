@@ -34,16 +34,20 @@ async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   return value;
 }
 
-/** Open Library works at `path`, without the 18+ ones. */
-const works = (path: string) =>
-  cached(path, async () => {
+/** Open Library works at `path`; the 18+ ones only for a profile that asked for them. */
+const works = async (path: string, adult: boolean) => {
+  const all = await cached(path, async () => {
     const body = await getJson(`https://openlibrary.org/${path}`);
     const list: unknown = body?.works ?? body?.docs;
-    return (Array.isArray(list) ? (list as Json[]) : []).filter(
-      (d) => WORK.test(String(d.key)) && d.title && !isAdult(d.title, d.subject),
-    );
+    return (Array.isArray(list) ? (list as Json[]) : []).filter((d) => WORK.test(String(d.key)) && d.title);
   });
-const mangaList = (filter: string) => cached(`manga ${filter}`, () => manga(`${filter}, ${SAFE}`));
+  return adult ? all : all.filter((d) => !isAdult(d.title, d.subject));
+};
+const mangaList = (filter: string, adult: boolean) =>
+  cached(`manga ${adult} ${filter}`, () => manga(adult ? filter : `${filter}, ${SAFE}`));
+/** Whether this profile turned on 18+ suggestions (Settings → Online). Off unless they did. */
+const wantsAdult = (userId: number) =>
+  db.prepare("SELECT prefs ->> 'adult' AS adult FROM users WHERE id = ?").get(userId)?.adult === 1;
 
 const authorOf = (d: Json) =>
   Array.isArray(d.author_name) && d.author_name[0] ? String(d.author_name[0]) : UNKNOWN_AUTHOR;
@@ -77,6 +81,7 @@ export async function GET(req: Request) {
     param("manga"),
     param("mangaGenre"),
   ];
+  const adult = wantsAdult(user.id);
   const search = (query: string, sort = "") =>
     `search.json?${new URLSearchParams({ q: query, fields: FIELDS, limit: "24" })}${sort}`;
   try {
@@ -140,6 +145,7 @@ export async function POST(req: Request) {
   const user = authorize(req, true);
   if (user instanceof Response) return user;
   const body = await req.json().catch(() => null);
+  const adult = wantsAdult(user.id);
   const key: unknown = body?.key;
   if (typeof key !== "string" || !(WORK.test(key) || ANILIST.test(key)))
     return Response.json({ error: "Bad request" }, { status: 400 });
@@ -151,7 +157,7 @@ export async function POST(req: Request) {
     try {
       const comic = ANILIST.exec(key);
       if (comic) {
-        const [m] = await manga(`id: ${comic[1]}, ${SAFE}`, 1);
+        const [m] = await manga(`id: ${comic[1]}${adult ? "" : `, ${SAFE}`}`, 1);
         cover = m?.cover;
         book = m && {
           title: m.title,
@@ -163,6 +169,7 @@ export async function POST(req: Request) {
       } else {
         const [doc] = await works(
           `search.json?${new URLSearchParams({ q: `key:${key}`, fields: FIELDS, limit: "1" })}`,
+          adult,
         );
         cover = doc && num(doc.cover_i) ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : undefined;
         // `info.v` is left out so the regular lookup still fetches the description and series.

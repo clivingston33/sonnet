@@ -1,10 +1,17 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { COVER_DIR } from "./db";
+
+/** SHA-256 of a file, read as a stream so audiobooks of any size are fine. */
+export async function hashFile(target: string) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(target)) hash.update(chunk);
+  return hash.digest("hex");
+}
 
 /** Streams a request body to `target`, refusing anything over `maxBytes`. Removes the partial file on failure. */
 export async function saveBody(req: Request, target: string, maxBytes: number) {

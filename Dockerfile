@@ -1,4 +1,5 @@
-# Untested: written without Docker available. Build with `docker compose up --build`.
+# The same `npm run build` / `npm start` this image runs has been checked without Docker;
+# the image itself has not been built. Build with `docker compose up --build`.
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package*.json ./

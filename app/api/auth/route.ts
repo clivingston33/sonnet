@@ -20,6 +20,23 @@ const signupsOpen = () =>
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const validPassword = (v: unknown): v is string =>
   typeof v === "string" && v.length >= 8 && v.length <= 200;
+const validPin = (v: unknown): v is string => typeof v === "string" && /^\d{4,8}$/.test(v);
+
+// Eight wrong tries at one account (or one profile's PIN) lock it for 15 minutes.
+// Counted per account, not per address: an address is easy to fake, an account's name is the target.
+// ponytail: kept in memory, so a restart forgets the counts; move to the database if that matters.
+const misses = new Map<string, { n: number; until: number }>();
+const locked = (key: string) => {
+  const m = misses.get(key);
+  return m && m.n >= 8 && m.until > Date.now() ? Math.ceil((m.until - Date.now()) / 60_000) : 0;
+};
+const miss = (key: string) => {
+  if (misses.size > 10_000) misses.clear();
+  const m = misses.get(key);
+  misses.set(key, { n: m && m.until > Date.now() ? m.n + 1 : 1, until: Date.now() + 15 * 60_000 });
+};
+const tooMany = (minutes: number) =>
+  fail(`Too many wrong tries. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`, 429);
 
 /** Who is signed in, what the sign-in page should offer, and (for admins) the user list. */
 export async function GET(req: Request) {
@@ -33,7 +50,10 @@ export async function GET(req: Request) {
     // Everyone who shares this sign-in, the account's own profile first.
     profiles: user
       ? db
-          .prepare("SELECT id, trim(first || ' ' || last) AS name FROM users WHERE id = ? OR owner = ? ORDER BY id")
+          .prepare(
+            `SELECT id, trim(first || ' ' || last) AS name, pin IS NOT NULL AS locked
+             FROM users WHERE id = ? OR owner = ? ORDER BY id`,
+          )
           .all(user.account, user.account)
       : undefined,
     users: user?.admin
@@ -80,12 +100,15 @@ export async function POST(req: Request) {
   }
 
   if (body.action === "login") {
-    const row = db
-      .prepare("SELECT id, password FROM users WHERE email = ?")
-      .get(text(body.email, 200));
-    // ponytail: no attempt limit; add a per-IP backoff before exposing this beyond the home network
-    if (!row || typeof body.password !== "string" || !checkPassword(body.password, String(row.password)))
+    const email = text(body.email, 200).toLowerCase();
+    const wait = locked(email);
+    if (wait) return tooMany(wait);
+    const row = db.prepare("SELECT id, password FROM users WHERE email = ?").get(email);
+    if (!row || typeof body.password !== "string" || !checkPassword(body.password, String(row.password))) {
+      miss(email);
       return fail("Wrong email or password.", 401);
+    }
+    misses.delete(email);
     return signIn(Number(row.id), body.remember === true);
   }
 
@@ -168,7 +191,34 @@ export async function POST(req: Request) {
 
   if (body.action === "switchProfile") {
     if (!inAccount(body.id)) return fail("No such profile.", 404);
+    const pin = db.prepare("SELECT pin FROM users WHERE id = ?").get(Number(body.id))?.pin;
+    if (pin && body.id !== user.id) {
+      const key = `pin:${body.id}`;
+      const wait = locked(key);
+      if (wait) return tooMany(wait);
+      if (typeof body.pin !== "string" || !checkPassword(body.pin, String(pin))) {
+        miss(key);
+        return fail("Wrong PIN.", 403);
+      }
+      misses.delete(key);
+    }
     switchProfile(req, Number(body.id));
+    return Response.json({ ok: true });
+  }
+
+  // A profile sets or removes its own PIN; the account's password can clear anyone's (a forgotten PIN).
+  if (body.action === "setPin") {
+    if (!inAccount(body.id)) return fail("No such profile.", 404);
+    if (body.id !== user.id) {
+      const row = db.prepare("SELECT password FROM users WHERE id = ?").get(user.account)!;
+      if (typeof body.password !== "string" || !checkPassword(body.password, String(row.password)))
+        return fail("The account password is wrong.", 403);
+    }
+    if (body.pin && !validPin(body.pin)) return fail("A PIN is 4 to 8 digits.");
+    db.prepare("UPDATE users SET pin = ? WHERE id = ?").run(
+      body.pin ? hashPassword(String(body.pin)) : null,
+      Number(body.id),
+    );
     return Response.json({ ok: true });
   }
 
@@ -192,6 +242,21 @@ export async function POST(req: Request) {
     if (typeof body.id !== "number" || body.id === user.id)
       return fail("You can’t remove your own account.");
     db.prepare("DELETE FROM users WHERE id = ?").run(body.id);
+    return Response.json({ ok: true });
+  }
+
+  // For someone who forgot their password and can't use a reset code. Signs them out everywhere.
+  if (body.action === "setPassword") {
+    if (typeof body.id !== "number" || !validPassword(body.password))
+      return fail("Use a password of at least 8 characters.");
+    const done = db
+      .prepare("UPDATE users SET password = ? WHERE id = ? AND owner IS NULL")
+      .run(hashPassword(body.password), body.id);
+    if (!done.changes) return fail("No such account.", 404);
+    if (body.id !== user.account)
+      db.prepare(
+        "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE id = ? OR owner = ?)",
+      ).run(body.id, body.id);
     return Response.json({ ok: true });
   }
 

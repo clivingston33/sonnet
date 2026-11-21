@@ -160,6 +160,11 @@ export function volumeOf(title: string): { series?: string; seriesIndex?: number
   return m ? { series: m[1], seriesIndex: Number(m[2]) } : {};
 }
 
+/** Comic files carry release tags after the name: "Dandadan v05 (2023) (Digital) (1r0n)" → "Dandadan v05". */
+export const tidyComic = (title: string) => title.replace(/(\s*[([][^()[\]]*[)\]])+$/, "") || title;
+/** Comic converters sign themselves as the author. */
+export const CONVERTER = /^(KCC|KindleComicConverter.*|Unknown)$/i;
+
 async function pdf(file: string): Promise<FileMeta> {
   // ponytail: pdf.js wants the whole file in memory; huge scans keep their file-name title
   if ((await stat(file)).size > 200 * 1024 * 1024) return {};

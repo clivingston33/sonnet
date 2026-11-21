@@ -48,6 +48,10 @@ function open() {
       created TEXT NOT NULL,
       PRIMARY KEY (user_id, book_id)
     );
+    CREATE TABLE IF NOT EXISTS files (
+      hash TEXT PRIMARY KEY, -- SHA-256 of an imported file, so the same file isn't stored twice
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -70,12 +74,16 @@ function open() {
       PRIMARY KEY (user_id, day)
     );
   `);
-  // Profiles: a user row with an owner shares the owner's sign-in. Databases made before profiles lack the column.
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN owner INTEGER REFERENCES users(id) ON DELETE CASCADE");
-  } catch {
-    // already there
-  }
+  // Columns added after the first release; older databases lack them.
+  for (const column of [
+    "owner INTEGER REFERENCES users(id) ON DELETE CASCADE", // profiles: shares the owner's sign-in
+    "pin TEXT", // optional profile PIN, hashed like a password
+  ])
+    try {
+      db.exec(`ALTER TABLE users ADD COLUMN ${column}`);
+    } catch {
+      // already there
+    }
   return db;
 }
 
@@ -85,6 +93,11 @@ const holder = globalThis as typeof globalThis & { libraryDb?: DatabaseSync };
 export const db = {
   prepare: (sql: string) => (holder.libraryDb ??= open()).prepare(sql),
 };
+/** Closes the database so its file can be replaced (restore); the next query opens it again. */
+export function closeDb() {
+  holder.libraryDb?.close();
+  holder.libraryDb = undefined;
+}
 
 /** Shared (per-server) fields of a book as stored in `books.data`. */
 export type BookData = Record<string, unknown>;
