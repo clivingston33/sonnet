@@ -5,6 +5,8 @@ import {
   currentUser,
   endSession,
   hashPassword,
+  familyMembers,
+  familyOf,
   startSession,
   switchProfile,
 } from "../../server/auth";
@@ -41,10 +43,16 @@ const tooMany = (minutes: number) =>
 export async function GET(req: Request) {
   const user = currentUser(req);
   const first = noAdmin();
+  const family = user && familyOf(user.account);
   return Response.json({
     first, // no real account yet: the next one created becomes the admin
     signups: first || signupsOpen(),
     user,
+    // The code others enter to join this person's family, and who is in it.
+    family: family && {
+      code: family.code,
+      members: familyMembers(family.id).map((m) => ({ id: m.id, name: m.name })),
+    },
     // Everyone who shares this sign-in, the account's own profile first.
     profiles: user
       ? db
@@ -91,10 +99,20 @@ export async function POST(req: Request) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("Enter a valid email address.");
     if (!validPassword(body.password)) return fail("Use a password of at least 8 characters.");
     if (idOf(email)) return fail("An account with that email already exists. Sign in instead.", 409);
-    return signIn(
-      create(first, text(body.last, 40), email, body.password, admin),
-      body.remember === true,
-    );
+    // Optional: the six-digit code of a family to join. Without one the account starts its own.
+    const code = text(body.family, 10);
+    // Nobody is signed in yet, so wrong codes are counted for the whole server:
+    // otherwise the million possible codes could simply be tried one after another.
+    const wait = code ? locked("family-code") : 0;
+    if (wait) return tooMany(wait);
+    const joining = code ? db.prepare("SELECT id FROM families WHERE code = ?").get(code) : null;
+    if (code && !joining) {
+      miss("family-code");
+      return fail("No family has that code. Check it, or leave it empty.");
+    }
+    const id = create(first, text(body.last, 40), email, body.password, admin);
+    if (joining) db.prepare("UPDATE users SET family = ? WHERE id = ?").run(joining.id, id);
+    return signIn(id, body.remember === true);
   }
 
   if (body.action === "login") {
@@ -162,6 +180,26 @@ export async function POST(req: Request) {
       return fail("Your current password is wrong.", 403);
     if (!validPassword(body.next)) return fail("Use a password of at least 8 characters.");
     db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashPassword(body.next), user.account);
+    return Response.json({ ok: true });
+  }
+
+  // Moves this account (and its profiles) into the family that has the code.
+  if (body.action === "joinFamily") {
+    const key = `family:${user.account}`;
+    const wait = locked(key);
+    if (wait) return tooMany(wait); // a six-digit code must not be guessable by trying them all
+    const target = db.prepare("SELECT id FROM families WHERE code = ?").get(text(body.code, 10));
+    if (!target) {
+      miss(key);
+      return fail("No family has that code.", 404);
+    }
+    db.prepare("UPDATE users SET family = ? WHERE id = ?").run(target.id, user.account);
+    return Response.json({ ok: true });
+  }
+  // Leaves the family for a new one of its own, with a new code.
+  if (body.action === "leaveFamily") {
+    db.prepare("UPDATE users SET family = NULL WHERE id = ?").run(user.account);
+    familyOf(user.account);
     return Response.json({ ok: true });
   }
 

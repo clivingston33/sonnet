@@ -52,11 +52,16 @@ function open() {
       hash TEXT PRIMARY KEY, -- SHA-256 of an imported file, so the same file isn't stored twice
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS families (
+      id INTEGER PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE -- six digits; whoever has it can join
+    );
     CREATE TABLE IF NOT EXISTS shared_shelves (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
       owner INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      books TEXT NOT NULL DEFAULT '[]' -- book ids, in the order they were added
+      books TEXT NOT NULL DEFAULT '[]', -- book ids, in the order they were added
+      family INTEGER REFERENCES families(id) ON DELETE CASCADE -- who sees it
     );
     CREATE TABLE IF NOT EXISTS recommendations (
       to_user INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -89,11 +94,13 @@ function open() {
   `);
   // Columns added after the first release; older databases lack them.
   for (const column of [
-    "owner INTEGER REFERENCES users(id) ON DELETE CASCADE", // profiles: shares the owner's sign-in
-    "pin TEXT", // optional profile PIN, hashed like a password
+    "users ADD COLUMN owner INTEGER REFERENCES users(id) ON DELETE CASCADE", // profiles: shares the owner's sign-in
+    "users ADD COLUMN pin TEXT", // optional profile PIN, hashed like a password
+    "users ADD COLUMN family INTEGER REFERENCES families(id) ON DELETE SET NULL", // accounts only
+    "shared_shelves ADD COLUMN family INTEGER REFERENCES families(id) ON DELETE CASCADE",
   ])
     try {
-      db.exec(`ALTER TABLE users ADD COLUMN ${column}`);
+      db.exec(`ALTER TABLE ${column}`);
     } catch {
       // already there
     }

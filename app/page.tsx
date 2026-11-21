@@ -243,7 +243,7 @@ function BookMenu({
         onClick={() => newCollection(book.id)}
       />
       {social.shelves.length > 0 && (
-        <p className="px-[6px] pt-2 pb-[3px] text-[11px] font-bold text-[#777]">Shared Shelves</p>
+        <p className="px-[6px] pt-2 pb-[3px] text-[11px] font-bold text-[#777]">Shared with Family</p>
       )}
       {social.shelves.map((c) => (
         <MenuItem
@@ -833,7 +833,7 @@ function Home() {
       {reading.length > 0 && (
         // Everything in progress, most recent first. Bottom-aligned, so a square audiobook
         // cover stands on the same line as the books and is only shorter at the top.
-        <section className="mb-[34px] flex flex-wrap items-end gap-x-[27px] gap-y-8 md:mr-[33px]">
+        <section className="mb-[34px] flex flex-wrap items-end gap-x-[27px] gap-y-8 max-md:justify-center max-md:[zoom:0.86] md:mr-[33px]">
           {reading.map((b) => (
             <div key={b.id} className="w-[188px]">
               <div
@@ -1216,7 +1216,7 @@ const HELP: [string, string][] = [
   ],
   [
     "Sharing with the others",
-    "Shared Shelves in the sidebar are seen by everyone on this server, and anyone can add books to them from a book’s ••• menu; whoever made a shelf (or the admin) can rename or delete it. Recommend To in the same menu puts a book on someone’s Home page. Home also shows what the others are reading and recently finished; turn off Share my reading under Settings → Account to keep yours private.",
+    "New Shelf in the sidebar asks whether the shelf is just for you or shared with your family; a shelf’s ••• menu can share it later or stop sharing. Everyone in your family sees a shared shelf and can add books to it from a book’s ••• menu. Recommend To in the same menu puts a book on a family member’s Home page, and Home shows what they are reading and recently finished; turn off Share my reading under Settings → Account to keep yours private. Your family’s six-digit code is under Settings → Account: someone enters it when creating their account, or there, to join.",
   ],
   [
     "Reading offline",
@@ -1275,6 +1275,89 @@ const loadProfiles = (): Promise<Profile[]> =>
     .then((res) => res.json())
     .then((body) => body.profiles ?? [])
     .catch(() => []);
+
+type FamilyInfo = { code: string; members: { id: number; name: string }[] };
+
+/** Your family: the code others enter to join it, who is in it, and joining someone else's. */
+function Family() {
+  const { user, toast } = useContext(LibCtx);
+  const [family, setFamily] = useState<FamilyInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = () =>
+    fetch("/api/auth")
+      .then((res) => res.json())
+      .then((body) => setFamily(body.family ?? null))
+      .catch(() => {});
+  useEffect(() => {
+    load();
+  }, []);
+  const others = family?.members.filter((m) => m.id !== user.id) ?? [];
+  return (
+    <>
+      <SettingRow
+        title="Family code"
+        text={`Give this code to someone to add them to your family: they enter it when creating their account, or below in their own settings. ${
+          others.length ? `In your family: ${others.map((m) => m.name).join(", ")}.` : "Nobody else has joined yet."
+        }`}
+      >
+        <span
+          aria-label="Family code"
+          className="rounded-lg bg-white/10 px-4 py-[6px] font-mono text-[18px] font-bold tracking-[0.25em] select-all"
+        >
+          {family?.code ?? "······"}
+        </span>
+      </SettingRow>
+      <SettingRow
+        title="Join a family"
+        text="Enter another family’s code to move into it. You leave your current family: its shared shelves stay with it."
+      >
+        <form
+          className="flex gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.currentTarget;
+            const failed = await authCall({ action: "joinFamily", code: new FormData(form).get("code") });
+            setError(failed);
+            if (failed) return;
+            form.reset();
+            toast("Joined", "You are now in that family.");
+            setTimeout(() => location.reload(), 1200); // shared shelves and activity are the new family's
+          }}
+        >
+          <input
+            name="code"
+            aria-label="Family code to join"
+            placeholder="6 digits"
+            inputMode="numeric"
+            pattern="\d{6}"
+            maxLength={6}
+            required
+            className={`${fieldClass} !h-[30px] !w-[110px] text-center`}
+          />
+          <button className={controlClass}>Join</button>
+          {others.length > 0 && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm("Leave this family? You get a new family of your own with a new code.")) return;
+                setError(await authCall({ action: "leaveFamily" }));
+                location.reload();
+              }}
+              className={`${controlClass} text-[#ff6b61]`}
+            >
+              Leave
+            </button>
+          )}
+        </form>
+      </SettingRow>
+      {error && (
+        <p role="alert" className="px-5 text-[13px] text-[#ff6b61]">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
 
 /** The people sharing this sign-in. Each has their own shelves, progress, stats and reviews. */
 function Profiles() {
@@ -1601,6 +1684,8 @@ function SettingsSheet({
             onChange={(e) => set(() => ({ share: e.target.checked }))}
           />
         </SettingRow>
+        <h3 className="px-5 pt-5 pb-2 text-[15px] font-bold">Family</h3>
+        <Family />
         <h3 className="px-5 pt-5 pb-2 text-[15px] font-bold">Profiles</h3>
         <Profiles />
         {user.admin && (
@@ -2651,8 +2736,28 @@ function FoundBooks({
 function Search() {
   const { s, set } = useContext(LibCtx);
   const [q, setQ] = useState("");
-  const [genre, setGenre] = useState(GENRES[0]);
+  const [pickedGenre, setGenre] = useState<string | null>(null);
   const [origin, setOrigin] = useState("manga");
+  // What this profile has shown it likes: finished, highly rated, started or wanted books.
+  // ponytail: a tally of genres and authors, not a recommender; fine for a home library.
+  const liked = s.books.filter((b) => b.finished || b.rating || (b.progress ?? 0) > 0 || b.want);
+  const top = (books: Book[], of: (b: Book) => string | undefined) => {
+    const score = new Map<string, number>();
+    for (const b of books) {
+      const name = of(b);
+      if (name) score.set(name, (score.get(name) ?? 0) + ((b.rating ?? 0) >= 4 ? 3 : b.finished ? 2 : 1));
+    }
+    return [...score].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  };
+  const prose = liked.filter((b) => b.kind !== "comic");
+  const likedGenres = top(prose, (b) => b.info?.genre || undefined);
+  const likedAuthor = top(prose, (b) => (b.author === UNKNOWN_AUTHOR ? undefined : b.author))[0];
+  const likedManga = top(liked.filter((b) => b.kind === "comic"), (b) => b.info?.genre || undefined)[0];
+  // A new profile sees what is popular everywhere; after a few books the rows follow its taste.
+  const personal = prose.length >= 3 && likedGenres.length > 0;
+  const genreChips = [...new Set([...(personal ? likedGenres.slice(0, 3) : []), ...GENRES])];
+  const genre = pickedGenre ?? (personal ? (likedGenres[1] ?? likedGenres[0]) : GENRES[0]);
+  const q8 = encodeURIComponent;
   const term = q.trim();
   const results = s.books.filter((b) =>
     `${b.title} ${b.author} ${b.series ?? ""} ${b.narrator ?? ""} ${(b.tags ?? []).join(" ")}`
@@ -2774,11 +2879,29 @@ function Search() {
           )}
           {s.lookups && (
             <>
-              <Section title="Discover">{found("list=new", "list", 8)}</Section>
-              <Section title="Trending">{found("list=trending", "terms", 10)}</Section>
+              {personal ? (
+                <>
+                  <Section title={`For You: ${likedGenres[0]}`}>
+                    {found(`subject=${q8(likedGenres[0])}&sort=rating`, "list", 8)}
+                  </Section>
+                  {likedAuthor && (
+                    <Section title={`More by ${likedAuthor}`}>
+                      {found(`author=${q8(likedAuthor)}`, "carousel")}
+                    </Section>
+                  )}
+                  <Section title={`Trending in ${likedGenres[0]}`}>
+                    {found(`subject=${q8(likedGenres[0])}`, "terms", 10)}
+                  </Section>
+                </>
+              ) : (
+                <>
+                  <Section title="Discover">{found("list=new", "list", 8)}</Section>
+                  <Section title="Trending">{found("list=trending", "terms", 10)}</Section>
+                </>
+              )}
               <Section title="Browse by Genre">
                 <div className="mb-4 flex flex-wrap gap-2">
-                  {GENRES.map((g) => (
+                  {genreChips.map((g) => (
                     <button
                       key={g}
                       aria-pressed={genre === g}
@@ -2793,7 +2916,7 @@ function Search() {
               </Section>
               <Section title="Manga & Manhwa">
                 <div className="mb-4 flex flex-wrap gap-2">
-                  {["manga", "manhwa"].map((o) => (
+                  {[...(likedManga ? ["for you"] : []), "manga", "manhwa"].map((o) => (
                     <button
                       key={o}
                       aria-pressed={origin === o}
@@ -2804,7 +2927,10 @@ function Search() {
                     </button>
                   ))}
                 </div>
-                {found(`list=${origin}`, "carousel")}
+                {found(
+                  origin === "for you" && likedManga ? `mangaGenre=${q8(likedManga)}` : `list=${origin}`,
+                  "carousel",
+                )}
               </Section>
             </>
           )}
@@ -3763,6 +3889,15 @@ function SignIn({ onDone }: { onDone: () => void }) {
               {field("last", "Last name (optional)", { autoComplete: "family-name", maxLength: 40 })}
             </div>
           )}
+          {registering &&
+            !options.first &&
+            field("family", "Family code (optional)", {
+              inputMode: "numeric",
+              pattern: "\\d{6}",
+              maxLength: 6,
+              placeholder: "6 digits, from a family member’s Settings",
+              title: "Six digits",
+            })}
           {sent ? (
             <>
               <p className="text-[13px] leading-[19px] text-[#a0a0a0]">
@@ -4378,6 +4513,7 @@ export default function Page() {
     editable: boolean,
     onRename: (name: string) => void,
     onDelete: () => void,
+    sharing?: { label: string; onClick: () => void }, // share with the family, or stop sharing
   ) =>
     renaming === key ? (
       <div key={key} className={`${itemClass} bg-[#737373]`}>
@@ -4406,9 +4542,10 @@ export default function Page() {
               label={`Options for ${name}`}
               button={DOTS}
               buttonClass="block py-[7px] text-[#d0d0d0] hover:text-white"
-              panelClass="top-6 right-0 w-[150px]"
+              panelClass="top-6 right-0 w-[190px]"
             >
               <MenuItem icon="pencil" label="Rename" onClick={() => setRenaming(key)} />
+              {sharing && <MenuItem icon="people" label={sharing.label} onClick={sharing.onClick} />}
               <MenuItem icon="trash" label="Delete" onClick={onDelete} />
             </Popover>
           </div>
@@ -4445,22 +4582,23 @@ export default function Page() {
                     collections: prev.collections.map((x) => (x.id === c.id ? { ...x, name } : x)),
                   })),
                 () => deleteShelf(c.id),
+                {
+                  label: "Share with Family",
+                  onClick: async () => {
+                    const made = await lib.socialCall({ action: "newShelf", name: c.name, books: c.bookIds });
+                    if (!made) return;
+                    set((prev) => ({ collections: prev.collections.filter((x) => x.id !== c.id) }));
+                    if (view === `c:${c.id}`) go(`x:${made.id}`);
+                  },
+                },
               ),
             )}
-            <button
-              onClick={() => lib.newCollection()}
-              className={`${itemClass} hover:bg-white/5`}
-            >
-              <Icon name="plus" />
-              New Shelf
-            </button>
-            <h3 className={headingClass}>Shared Shelves</h3>
             {social.shelves.map((c) =>
               shelfRow(
                 `x:${c.id}`,
                 `x:${c.id}`,
                 c.name,
-                "user",
+                "people",
                 c.mine,
                 (name) => lib.socialCall({ action: "renameShelf", id: c.id, name }),
                 async () => {
@@ -4469,21 +4607,45 @@ export default function Page() {
                   await lib.socialCall({ action: "deleteShelf", id: c.id });
                   if (view === `x:${c.id}`) setView("all");
                 },
+                {
+                  label: "Stop Sharing",
+                  onClick: async () => {
+                    // Becomes one of your own shelves again, with the books it has now.
+                    const id = Date.now().toString(36);
+                    if (!(await lib.socialCall({ action: "deleteShelf", id: c.id }))) return;
+                    set((prev) => ({
+                      collections: [...prev.collections, { id, name: c.name, bookIds: c.bookIds }],
+                    }));
+                    if (view === `x:${c.id}`) go(`c:${id}`);
+                  },
+                },
               ),
             )}
-            <button
-              onClick={async () => {
-                // Made with a placeholder name and put straight into renaming, like your own shelves.
-                const made = await lib.socialCall({ action: "newShelf", name: "Untitled Shelf" });
-                if (!made) return;
-                go(`x:${made.id}`);
-                setRenaming(`x:${made.id}`);
-              }}
-              className={`${itemClass} hover:bg-white/5`}
+            <Popover
+              label="New Shelf"
+              button={
+                <>
+                  <Icon name="plus" />
+                  New Shelf
+                </>
+              }
+              buttonClass={`${itemClass} hover:bg-white/5 aria-expanded:bg-white/10`}
+              panelClass="w-[210px]"
+              floating
             >
-              <Icon name="plus" />
-              New Shared Shelf
-            </button>
+              <MenuItem icon="lines" label="Just for Me" onClick={() => lib.newCollection()} />
+              <MenuItem
+                icon="people"
+                label="Shared with Family"
+                onClick={async () => {
+                  // Made with a placeholder name and put straight into renaming, like your own shelves.
+                  const made = await lib.socialCall({ action: "newShelf", name: "Untitled Shelf" });
+                  if (!made) return;
+                  go(`x:${made.id}`);
+                  setRenaming(`x:${made.id}`);
+                }}
+              />
+            </Popover>
             {tags.length > 0 && <h3 className={headingClass}>Tags</h3>}
             {tags.map((t) => navButton(`t:${t}`, t, "tag"))}
           </nav>
@@ -4534,7 +4696,8 @@ export default function Page() {
         </aside>
 
         <main
-          className={`relative flex min-w-0 grow flex-col overflow-y-auto px-4 pt-6 md:pt-[52px] md:pr-[10px] md:pl-[43px] ${playingBook ? "pb-[130px] max-md:pb-[250px]" : "pb-[27px] max-md:pb-[90px]"}`}
+          // Clear of the phone's notch at the top and of the tab bar (plus home indicator) at the bottom.
+          className={`relative flex min-w-0 grow flex-col overflow-y-auto px-[max(1rem,env(safe-area-inset-left))] pt-[max(1.5rem,env(safe-area-inset-top))] md:pt-[52px] md:pr-[10px] md:pl-[43px] ${playingBook ? "pb-[130px] max-md:pb-[calc(250px+env(safe-area-inset-bottom))]" : "pb-[27px] max-md:pb-[calc(90px+env(safe-area-inset-bottom))]"}`}
         >
           {!loaded ? null : view === "search" ? (
             <Search />

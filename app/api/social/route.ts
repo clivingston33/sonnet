@@ -1,4 +1,4 @@
-import { authorize } from "../../server/auth";
+import { authorize, familyMembers, familyOf } from "../../server/auth";
 import { db, getBook } from "../../server/db";
 
 type Row = Record<string, unknown>;
@@ -11,15 +11,17 @@ const ids = (json: unknown): string[] => JSON.parse(String(json));
 export async function GET(req: Request) {
   const user = authorize(req);
   if (user instanceof Response) return user;
-  const people = db
-    .prepare("SELECT id, trim(first || ' ' || last) AS name, prefs ->> 'share' AS share FROM users WHERE id != ? ORDER BY id")
-    .all(user.id);
-  const shelves = db.prepare("SELECT id, name, owner, books FROM shared_shelves ORDER BY id").all().map((s) => ({
-    id: Number(s.id),
-    name: String(s.name),
-    bookIds: ids(s.books),
-    mine: s.owner === user.id || user.admin, // may rename and delete it
-  }));
+  const family = familyOf(user.account).id;
+  const people = familyMembers(family).filter((p) => p.id !== user.id);
+  const shelves = db
+    .prepare("SELECT id, name, owner, books FROM shared_shelves WHERE family = ? OR family IS NULL ORDER BY id")
+    .all(family)
+    .map((s) => ({
+      id: Number(s.id),
+      name: String(s.name),
+      bookIds: ids(s.books),
+      mine: s.owner === user.id || user.admin, // may rename, delete and stop sharing it
+    }));
 
   const activity: Row[] = [];
   const monthAgo = new Date(Date.now() - 30 * 86_400_000).toLocaleDateString("sv");
@@ -56,16 +58,23 @@ export async function POST(req: Request) {
   const fail = (error: string, status = 400) => Response.json({ error }, { status });
   const ok = (extra: Row = {}) => Response.json({ ok: true, ...extra });
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";
-  const shelf = db.prepare("SELECT id, owner, books FROM shared_shelves WHERE id = ?").get(Number(body.id));
+  const family = familyOf(user.account).id;
+  const shelf = db
+    .prepare("SELECT id, owner, books FROM shared_shelves WHERE id = ? AND (family = ? OR family IS NULL)")
+    .get(Number(body.id), family);
   const book = typeof body.book === "string" && getBook(body.book) ? body.book : null;
 
   if (body.action === "newShelf") {
     if (!name) return fail("Give the shelf a name.");
-    const id = db.prepare("INSERT INTO shared_shelves (name, owner) VALUES (?, ?)").run(name, user.id).lastInsertRowid;
+    // `books`: the shelf starts with these (a personal shelf being shared).
+    const books = Array.isArray(body.books) ? body.books.filter((b) => typeof b === "string" && getBook(b)) : [];
+    const id = db
+      .prepare("INSERT INTO shared_shelves (name, owner, books, family) VALUES (?, ?, ?, ?)")
+      .run(name, user.id, JSON.stringify(books), family).lastInsertRowid;
     return ok({ id: Number(id) });
   }
   if (body.action === "recommend") {
-    const to = db.prepare("SELECT id FROM users WHERE id = ? AND id != ?").get(Number(body.to), user.id);
+    const to = familyMembers(family).find((p) => p.id === Number(body.to) && p.id !== user.id);
     if (!to || !book) return fail("No such person or book.", 404);
     db.prepare(
       "INSERT OR REPLACE INTO recommendations (to_user, from_user, book_id, created) VALUES (?, ?, ?, ?)",

@@ -52,8 +52,13 @@ covers, and Restore puts one back; the book files in `library/` are not in it an
 by hand. Importing a file that is already there is skipped, and Tidy Now re-files older books
 with the current rules. `MAX_UPLOAD_MB` caps a single upload (default 2048).
 
-Sharing: shared shelves, recommendations between people and a "what others are reading" list
-on Home. A profile can turn off sharing its reading under Settings → Account.
+Families: every account has a six-digit family code (Settings → Account). Someone who enters it
+when creating their account, or in their own settings, joins that family. Shared shelves,
+recommendations and the "what others are reading" list on Home stay inside a family. A profile
+can turn off sharing its reading under Settings → Account.
+
+Search shows what is new and trending to a new profile; once it has started, finished, rated or
+wanted three books with a known genre, the rows follow its favourite genres and author.
 
 Offline reading: the app installs to a phone or tablet's home screen, and the cloud button on a
 book keeps it on the device (`public/sw.js`, `app/offline.ts`). Progress made offline is queued

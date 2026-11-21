@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { db } from "./db";
 
 /**
@@ -53,6 +53,35 @@ export function currentUser(req: Request): User | null {
 export function switchProfile(req: Request, userId: number) {
   db.prepare("UPDATE sessions SET user_id = ? WHERE token = ?").run(userId, digest(tokenOf(req) ?? ""));
 }
+
+/**
+ * The family an account belongs to. Every account has one: its own, until it joins someone
+ * else's with their code. Profiles are in their account's family. Shared shelves,
+ * recommendations and reading activity stay inside a family.
+ */
+export function familyOf(accountId: number): { id: number; code: string } {
+  const row = db
+    .prepare("SELECT f.id, f.code FROM users u JOIN families f ON f.id = u.family WHERE u.id = ?")
+    .get(accountId);
+  if (row) return { id: Number(row.id), code: String(row.code) };
+  for (;;) {
+    const code = randomInt(1e6).toString().padStart(6, "0");
+    if (db.prepare("SELECT 1 FROM families WHERE code = ?").get(code)) continue; // taken: draw again
+    const id = Number(db.prepare("INSERT INTO families (code) VALUES (?)").run(code).lastInsertRowid);
+    db.prepare("UPDATE users SET family = ? WHERE id = ?").run(id, accountId);
+    return { id, code };
+  }
+}
+
+/** Everyone in a family: its accounts and their profiles. */
+export const familyMembers = (familyId: number) =>
+  db
+    .prepare(
+      `SELECT u.id, trim(u.first || ' ' || u.last) AS name, u.prefs ->> 'share' AS share
+       FROM users u LEFT JOIN users o ON o.id = u.owner
+       WHERE coalesce(o.family, u.family) = ? ORDER BY u.id`,
+    )
+    .all(familyId);
 
 /** True when a browser on another site sent the request (browsers always attach Origin to those). */
 export function crossSite(req: Request) {

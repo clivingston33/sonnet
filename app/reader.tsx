@@ -124,7 +124,7 @@ function Shell({
       role="dialog"
       aria-modal="true"
       aria-label={`Reading ${book.title}`}
-      className="fixed inset-0 z-[45] flex flex-col"
+      className="fixed inset-0 z-[45] flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
       style={{ background: tone.bg, color: tone.fg }}
       onMouseMove={(e) => setNear(e.clientY < 150)}
       onMouseLeave={() => setNear(false)}

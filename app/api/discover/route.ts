@@ -104,7 +104,7 @@ export async function GET(req: Request) {
       : author
         ? search(`author:"${author}"`)
         : subject
-          ? search(`subject:"${subject}"`, "&sort=trending")
+          ? search(`subject:"${subject}"`, `&sort=${params.get("sort") === "rating" ? "rating" : "trending"}`)
           : list === "trending"
             ? "trending/weekly.json?limit=24"
             : list === "new"
