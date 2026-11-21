@@ -32,12 +32,13 @@ with the account password always opens the account's own profile.
 
 With Docker: `docker compose up --build`.
 
-Home server: deployed by Coolify (project "Books") from this repository's `main` branch with the
-Dockerfile, reading the repo through a read-only deploy key. Data is in the Docker volumes
-mounted at `/data` and `/library`. Coolify's Cloudflare tunnel publishes it at
-https://books.example.com. To update: push to `main`, then press Redeploy in Coolify.
+Home server: the app runs in Proxmox container 105 (`books`, 192.0.2.10, systemd unit
+`books.service`, port 3000), with code in `/opt/books` and data in `/srv/books` (on the host:
+`/mnt/data/books`). Like Jellyfin, it is published by adding a public hostname to the
+existing Cloudflare tunnel: `books.example.com` → `http://192.0.2.10:3000`.
+`./deploy.sh` sends the committed code there, rebuilds and restarts.
 Cloudflare caps uploads at 100 MB on the free plan, so larger files (audiobooks) have to be
-imported from the home network.
+imported from the home network address.
 
 ## Data
 
