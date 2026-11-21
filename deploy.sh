@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sends the committed code to the home server and restarts the app there.
-# The app lives in Proxmox container 105 ("books"): code in /opt/books, data in /srv/books.
+# The app lives in Proxmox container 105 ("sonnet"): code in /opt/books, data in /srv/books.
 set -euo pipefail
 HOST=root@192.0.2.1
 CT=105
