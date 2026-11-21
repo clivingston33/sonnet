@@ -140,9 +140,10 @@ function Shell({
           className={`${iconButton} flex items-center gap-1 pr-2 text-[13px]`}
         >
           <Icon name="chevronLeft" className="size-5" />
-          Library
+          <span className="max-md:hidden">Library</span>
         </button>
-        <h2 className="min-w-[80px] grow basis-0 truncate text-center text-[13px] opacity-70">
+        {/* Phones have no room for the title beside the controls; the space still pushes them right. */}
+        <h2 className="grow basis-0 truncate text-center text-[13px] opacity-70 max-md:invisible md:min-w-[80px]">
           {book.title}
         </h2>
         {controls}
@@ -559,7 +560,44 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
   );
 }
 
-/** One page at a time: PDF pages drawn by pdf.js, or the images of a comic archive. */
+/** One page of a PDF in the scrolling strip, drawn only while it is near the window. */
+function PdfStripPage({ doc, n, width }: { doc: PDFDocumentProxy; n: number; width: number }) {
+  const holder = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [near, setNear] = useState(false);
+  const [height, setHeight] = useState(0); // known once drawn; until then a typical page shape
+  useEffect(() => {
+    const watch = new IntersectionObserver(([e]) => setNear(e.isIntersecting), { rootMargin: "150% 0px" });
+    watch.observe(holder.current!);
+    return () => watch.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!near || !width) return;
+    let task: RenderTask | undefined;
+    let cancelled = false;
+    doc.getPage(n).then((p) => {
+      if (cancelled || !canvas.current) return;
+      const fit = width / p.getViewport({ scale: 1 }).width;
+      const viewport = p.getViewport({ scale: fit * window.devicePixelRatio });
+      canvas.current.width = viewport.width;
+      canvas.current.height = viewport.height;
+      setHeight(viewport.height / window.devicePixelRatio);
+      task = p.render({ canvas: canvas.current, viewport });
+      task.promise.catch(() => {}); // cancelled when it scrolls away or the window resizes
+    });
+    return () => {
+      cancelled = true;
+      task?.cancel();
+    };
+  }, [near, width, doc, n]);
+  return (
+    <div ref={holder} aria-label={`Page ${n}`} className="mx-auto" style={{ width, height: height || width * 1.42 }}>
+      {near && <canvas ref={canvas} className="block h-full w-full" />}
+    </div>
+  );
+}
+
+/** PDF pages drawn by pdf.js, or the images of a comic archive: a scrolling strip or one page at a time. */
 function PagedView({ book, onPatch, onClose }: Props) {
   const isPdf = extOf(book.file!) === "pdf";
   const area = useRef<HTMLDivElement>(null);
@@ -606,16 +644,20 @@ function PagedView({ book, onPatch, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book.id]);
 
+  // Comics open as one long strip to scroll, like the manga sites; paged turning is a choice per book.
+  // An ordinary PDF opens a page at a time; a PDF filed under Manga & Comics opens as a strip.
+  const mode: PageMode = book.mode ?? (isPdf && book.kind !== "comic" ? "ltr" : "scroll");
+  const strip = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const el = area.current;
+    const el = area.current ?? strip.current;
     if (!el) return;
     const observer = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [mode, broken]);
 
   useEffect(() => {
-    if (!doc || !size.w) return;
+    if (!doc || !size.w || mode === "scroll") return;
     let task: RenderTask | undefined;
     let cancelled = false;
     doc.getPage(Math.min(page, doc.numPages)).then((p) => {
@@ -635,7 +677,7 @@ function PagedView({ book, onPatch, onClose }: Props) {
       cancelled = true;
       task?.cancel();
     };
-  }, [doc, page, size]);
+  }, [doc, page, size, mode]);
 
   const go = (to: number) => {
     const next = Math.min(Math.max(1, Math.round(to) || 1), count || 1);
@@ -643,10 +685,7 @@ function PagedView({ book, onPatch, onClose }: Props) {
     setPage(next);
     onPatch({ page: next, progress: count ? next / count : 0 });
   };
-  // Comics open as one long strip to scroll, like the manga sites; paged turning is a choice per book.
-  const mode: PageMode = isPdf ? "ltr" : (book.mode ?? "scroll");
   const step = mode === "rtl" ? -1 : 1; // which way the right-hand arrow goes
-  const strip = useRef<HTMLDivElement>(null);
   const show = (n: number) => strip.current?.children[n - 1]?.scrollIntoView();
   /** Goes to a page chosen by number or bookmark, which in the strip also means scrolling to it. */
   const jump = (to: number) => {
@@ -662,7 +701,7 @@ function PagedView({ book, onPatch, onClose }: Props) {
     );
     // Runs when the strip appears, not on every page change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, images.length]);
+  }, [mode, count]);
   useEffect(() => {
     const turn = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || mode === "scroll") return;
@@ -724,18 +763,16 @@ function PagedView({ book, onPatch, onClose }: Props) {
             className={`${controlClass} w-[58px] text-center`}
           />
           <span className="text-[12px] text-[#a0a0a0]">of {count}</span>
-          {!isPdf && (
-            <select
-              aria-label="Page turning"
-              value={mode}
-              onChange={(e) => onPatch({ mode: e.target.value as PageMode })}
-              className={controlClass}
-            >
-              <option value="ltr">Left to Right</option>
-              <option value="rtl">Right to Left (Manga)</option>
-              <option value="scroll">Scroll (Webtoon)</option>
-            </select>
-          )}
+          <select
+            aria-label="Page turning"
+            value={mode}
+            onChange={(e) => onPatch({ mode: e.target.value as PageMode })}
+            className={`${controlClass} max-md:w-[110px]`} // narrow enough to stay on the toolbar's one row
+          >
+            <option value="ltr">Left to Right</option>
+            <option value="rtl">Right to Left (Manga)</option>
+            <option value="scroll">Scroll (Webtoon)</option>
+          </select>
           {mode !== "scroll" && (
             <>
               <ToolButton
@@ -769,10 +806,14 @@ function PagedView({ book, onPatch, onClose }: Props) {
           }}
           className="relative min-h-0 grow overflow-y-auto bg-[#111]"
         >
-          {images.map((url, i) => (
-            // eslint-disable-next-line @next/next/no-img-element -- a blob URL from the archive
-            <img key={url} src={url} alt={`Page ${i + 1}`} className="mx-auto block w-full max-w-[800px]" />
-          ))}
+          {doc
+            ? Array.from({ length: doc.numPages }, (_, i) => (
+                <PdfStripPage key={i} doc={doc} n={i + 1} width={Math.min(size.w, 800)} />
+              ))
+            : images.map((url, i) => (
+                // eslint-disable-next-line @next/next/no-img-element -- a blob URL from the archive
+                <img key={url} src={url} alt={`Page ${i + 1}`} className="mx-auto block w-full max-w-[800px]" />
+              ))}
         </div>
       ) : (
         <div ref={area} className="flex min-h-0 grow items-center justify-center overflow-hidden bg-[#111]">

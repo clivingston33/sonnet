@@ -13,8 +13,11 @@ export async function hashFile(target: string) {
   return hash.digest("hex");
 }
 
-/** Streams a request body to `target`, refusing anything over `maxBytes`. Removes the partial file on failure. */
-export async function saveBody(req: Request, target: string, maxBytes: number) {
+/**
+ * Streams a request body to `target`, refusing anything over `maxBytes`. Removes the partial file on failure.
+ * `from` > 0 writes the body at that offset of a file that already exists (the next piece of an upload).
+ */
+export async function saveBody(req: Request, target: string, maxBytes: number, from = 0) {
   let size = 0;
   const limit = new Transform({
     transform(chunk, _encoding, done) {
@@ -23,7 +26,8 @@ export async function saveBody(req: Request, target: string, maxBytes: number) {
     },
   });
   try {
-    await pipeline(Readable.fromWeb(req.body as never), limit, createWriteStream(target));
+    const out = createWriteStream(target, from ? { flags: "r+", start: from } : {});
+    await pipeline(Readable.fromWeb(req.body as never), limit, out);
     return "ok" as const;
   } catch {
     await rm(target, { force: true });

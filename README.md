@@ -37,8 +37,8 @@ Home server: the app runs in Proxmox container 105 (`sonnet`, 192.0.2.10, system
 `/mnt/data/books`). Like Jellyfin, it is published by adding a public hostname to the
 existing Cloudflare tunnel: `sonnet.example.com` → `http://192.0.2.10:3000`.
 `./deploy.sh` sends the committed code there, rebuilds and restarts.
-Cloudflare caps uploads at 100 MB on the free plan, so larger files (audiobooks) have to be
-imported from the home network address.
+Cloudflare refuses requests over 100 MB on the free plan, so imports are sent in 64 MB pieces
+(`app/api/import/route.ts`); large audiobooks upload from anywhere.
 
 ## Data
 

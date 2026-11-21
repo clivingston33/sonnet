@@ -169,9 +169,9 @@ function BookMenu({
     <Popover
       label={`Options for ${book.title}`}
       button={DOTS}
-      buttonClass="block shrink-0 py-1 text-[#b4b4b4] hover:text-white"
+      buttonClass="block shrink-0 py-1 text-[#b4b4b4] hover:text-white max-md:p-2"
       // ponytail: opens downward only; flip upward near the viewport bottom if it gets annoying
-      panelClass={floating ? "w-[230px]" : `top-5 ${align} w-[230px]`}
+      panelClass={`w-[230px] max-md:w-[270px] ${floating ? "" : `top-5 ${align}`}`}
       floating={floating}
     >
       <MenuItem
@@ -372,7 +372,7 @@ function CloudButton({ book }: { book: Book }) {
       title={busy ? "Downloading…" : here ? "On this device. Click to remove." : "Download for offline reading"}
       disabled={busy}
       onClick={() => keepOffline(book)}
-      className={`block hover:text-white ${busy ? "animate-pulse" : ""}`}
+      className={`block hover:text-white max-md:p-1 ${busy ? "animate-pulse" : ""}`}
     >
       <Icon name={here ? "cloudDone" : "cloudDown"} className="size-5" strokeWidth={1.4} />
     </button>
@@ -833,9 +833,10 @@ function Home() {
       {reading.length > 0 && (
         // Everything in progress, most recent first. Bottom-aligned, so a square audiobook
         // cover stands on the same line as the books and is only shorter at the top.
-        <section className="mb-[34px] flex flex-wrap items-end gap-x-[27px] gap-y-8 max-md:justify-center max-md:[zoom:0.86] md:mr-[33px]">
+        // On phones: one row of smaller covers to swipe through, so the page below stays in reach.
+        <section className="mb-[34px] flex shrink-0 items-end gap-x-[27px] gap-y-8 max-md:-mx-[22px] max-md:overflow-x-auto max-md:px-[22px] max-md:[zoom:0.72] md:mr-[33px] md:flex-wrap">
           {reading.map((b) => (
-            <div key={b.id} className="w-[188px]">
+            <div key={b.id} className="w-[188px] shrink-0">
               <div
                 role="button"
                 tabIndex={0}
@@ -851,7 +852,7 @@ function Home() {
               </p>
               <div className="mt-1 flex items-center justify-between text-[13px] text-[#9a9a9a]">
                 {percent(b)}
-                <BookMenu book={b} align="left-0" />
+                <BookMenu book={b} align="left-0" floating />
               </div>
             </div>
           ))}
@@ -1135,10 +1136,13 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
         </p>
         <label className="mt-6 flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-white/20 bg-white/5 px-6 py-12 text-center focus-within:border-white/50 hover:bg-white/10">
           <Icon name="import" className="size-9 text-[#a0a0a0]" />
-          <span className="text-[15px] font-bold">Drop files or folders here, or click to choose files</span>
-          <span className="text-[13px] text-[#a0a0a0]">
+          <span className="text-[15px] font-bold max-md:hidden">
+            Drop files or folders here, or click to choose files
+          </span>
+          <span className="text-[13px] text-[#a0a0a0] max-md:hidden">
             You can also drop them anywhere in the window.
           </span>
+          <span className="text-[15px] font-bold md:hidden">Tap to choose files</span>
           <input
             type="file"
             multiple
@@ -1151,7 +1155,8 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
           />
         </label>
         <label
-          className={`${controlClass} mt-3 flex w-fit cursor-pointer items-center gap-2 focus-within:bg-white/15`}
+          // Phones cannot pick a whole folder.
+          className={`${controlClass} mt-3 flex w-fit cursor-pointer items-center gap-2 focus-within:bg-white/15 max-md:hidden`}
         >
           <Icon name="folder" className="size-4" />
           Choose a Folder…
@@ -1975,9 +1980,9 @@ function Detail({ ids, id }: DetailState) {
               <BookMenu book={book} />
             </div>
 
-            <div className="flex flex-col gap-6 md:flex-row md:gap-[34px]">
+            <div className="flex flex-col gap-6 max-md:items-center max-md:pt-12 md:flex-row md:gap-[34px]">
               <Cover book={book} w={190} />
-              <div className="min-w-0 grow">
+              <div className="min-w-0 grow max-md:w-full">
                 {book.series && (
                   <button
                     onClick={() => setView(`s:${book.series}`)}
@@ -1988,16 +1993,16 @@ function Detail({ ids, id }: DetailState) {
                     <Icon name="chevronRight" className="size-3" strokeWidth={2.4} />
                   </button>
                 )}
-                <h2 className="font-serif text-[28px] leading-tight font-bold">
+                <h2 className="font-serif text-[28px] leading-tight font-bold max-md:text-center">
                   {book.title}
                 </h2>
-                <p className="mt-[6px] text-[14px]">
+                <p className="mt-[6px] text-[14px] max-md:text-center">
                   {book.author}
                   {book.narrator && (
                     <span className="text-[#a8a8a8]"> • Narrated by {book.narrator}</span>
                   )}
                 </p>
-                <p className="mt-2 text-[13px] text-[#a8a8a8]">
+                <p className="mt-2 text-[13px] text-[#a8a8a8] max-md:text-center">
                   {[
                     info?.rating &&
                       `★ ${info.rating.toFixed(1)} (${compact(info.ratings ?? 0)})`,
@@ -2968,6 +2973,8 @@ function CoverButton({ book, w, ids }: { book: Book; w: number; ids: string[] })
       tabIndex={0}
       aria-label={book.title}
       title="Double-click to open"
+      // A finger has no double-click: on touch screens one tap opens the book.
+      onClick={() => matchMedia("(pointer: coarse)").matches && open()}
       onDoubleClick={open}
       onKeyDown={(e) => e.key === "Enter" && open()}
       className="w-fit shrink-0 cursor-pointer outline-none"
@@ -4176,10 +4183,21 @@ export default function Page() {
         );
       mark("working");
       try {
-        const res = await fetch(`/api/import?name=${encodeURIComponent(f.name)}`, {
-          method: "PUT",
-          body: f,
-        });
+        // Sent in pieces: the tunnel the app is published through refuses requests over 100 MB.
+        const PIECE = 64 * 1024 * 1024;
+        const upload = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
+          b.toString(16).padStart(2, "0"),
+        ).join("");
+        let res: Response;
+        for (let offset = 0; ; offset += PIECE) {
+          const last = offset + PIECE >= f.size;
+          res = await fetch(
+            `/api/import?name=${encodeURIComponent(f.name)}&upload=${upload}&offset=${offset}${last ? "&last=1" : ""}`,
+            { method: "PUT", body: f.slice(offset, offset + PIECE) },
+          );
+          if (last || !res.ok) break;
+          mark("working", `${Math.round(((offset + PIECE) / f.size) * 100)}% sent`);
+        }
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error ?? `Upload failed (${res.status})`);
         const book: Book = body.book;

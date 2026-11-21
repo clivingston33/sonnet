@@ -178,16 +178,17 @@ export function MenuItem({
     <button
       role="menuitem"
       onClick={onClick}
-      className="flex h-[25.500px] w-full items-center rounded-lg px-[6px] text-left text-[13px] hover:bg-white/10"
+      // Taller rows and larger type on phones, where they are tapped with a finger.
+      className="flex h-[25.500px] w-full items-center rounded-lg px-[6px] text-left text-[13px] hover:bg-white/10 max-md:h-[42px] max-md:px-[10px] max-md:text-[16px]"
     >
       {checked !== undefined && (
-        <span className="w-[22px]">
-          {checked && <Icon name="check" className="size-[14px]" strokeWidth={2.4} />}
+        <span className="w-[22px] max-md:w-[32px]">
+          {checked && <Icon name="check" className="size-[14px] max-md:size-[19px]" strokeWidth={2.4} />}
         </span>
       )}
       {icon && (
-        <span className="w-[22px] text-[#b4b4b4]">
-          <Icon name={icon} className="size-[14px]" />
+        <span className="w-[22px] text-[#b4b4b4] max-md:w-[32px]">
+          <Icon name={icon} className="size-[14px] max-md:size-[19px]" />
         </span>
       )}
       <span className="truncate">{label}</span>
