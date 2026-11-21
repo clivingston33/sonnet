@@ -1,0 +1,9 @@
+services:
+  library:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data # database and cover images
+      - ./library:/library # imported book and audio files
+    restart: unless-stopped

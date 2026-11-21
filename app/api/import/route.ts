@@ -1,110 +1,114 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { kindOf } from "../../formats";
+import { authorize } from "../../server/auth";
+import { LIBRARY_DIR, db, getBook, patchBook, type BookData } from "../../server/db";
+import { saveBody, saveCover } from "../../server/files";
+import { nameMeta, readMeta, volumeOf } from "../../server/metadata";
 
-const DIR = process.env.LIBRARY_DIR ?? path.join(process.cwd(), "library");
 const MAX_BYTES = Number(process.env.MAX_UPLOAD_MB ?? 2048) * 1024 * 1024;
+const UNKNOWN_AUTHOR = "Unknown Author";
+const PALETTE = [
+  ["#23254d", "#07070c"],
+  ["#2f9d5c", "#04201f"],
+  ["#f0a030", "#8a3a14"],
+  ["#7a2f3a", "#1c0a10"],
+  ["#2b5d8a", "#0a1a2a"],
+  ["#5a3d8a", "#150d24"],
+];
 
-/** Only names this route generated are ever read or deleted, so a request can't reach other paths. */
-const STORED = /^[0-9a-f-]{36}\.[a-z0-9]+$/;
+type Part = { file: string; duration: number; name: string; track?: number };
+const isPart = (v: unknown): v is Part =>
+  !!v && typeof v === "object" && "file" in v && "duration" in v && "name" in v;
+const partsOf = (book: BookData) => (Array.isArray(book.files) ? book.files.filter(isPart) : []);
 
-// Everything else is sent as a download, so an uploaded file can never run as a page on this origin.
-const TYPES: Record<string, string> = {
-  pdf: "application/pdf",
-  txt: "text/plain; charset=utf-8",
-  epub: "application/epub+zip",
-  mp3: "audio/mpeg",
-  m4b: "audio/mp4",
-  m4a: "audio/mp4",
-  aac: "audio/aac",
-  flac: "audio/flac",
-  ogg: "audio/ogg",
-  opus: "audio/ogg",
-  wav: "audio/wav",
-};
-
-// ponytail: there are no accounts yet, so anyone on the network can still import and
-// delete. This only stops other websites from doing it through a visitor's browser.
-function crossSite(req: Request) {
-  const origin = req.headers.get("origin");
-  return !!origin && new URL(origin).host !== req.headers.get("host");
-}
-
-/** PUT /api/import?name=<original file name>, raw file as the body. Streams to LIBRARY_DIR. */
+/**
+ * PUT /api/import?name=<original file name>, raw file as the body.
+ * Stores the file, reads its own metadata and cover, and returns the book it created.
+ * An audio file whose album matches an existing audiobook is added to it as the next part.
+ */
 export async function PUT(req: Request) {
-  if (crossSite(req)) return Response.json({ error: "Forbidden" }, { status: 403 });
+  const user = authorize(req, true);
+  if (user instanceof Response) return user;
   const name = new URL(req.url).searchParams.get("name") ?? "";
-  if (!kindOf(name) || !req.body)
+  let kind = kindOf(name);
+  if (!kind || !req.body)
     return Response.json({ error: "Unsupported file type" }, { status: 415 });
   const tooLarge = Response.json({ error: "File too large" }, { status: 413 });
   if (Number(req.headers.get("content-length")) > MAX_BYTES) return tooLarge;
 
   // The client's name only supplies the (allow-listed) extension, never the path.
   const file = `${randomUUID()}.${name.split(".").pop()!.toLowerCase()}`;
-  const target = path.join(DIR, file);
-  await mkdir(DIR, { recursive: true });
-  let size = 0;
-  const limit = new Transform({
-    transform(chunk, _encoding, done) {
-      size += chunk.length;
-      done(size > MAX_BYTES ? new Error("File too large") : null, chunk);
-    },
-  });
-  try {
-    await pipeline(Readable.fromWeb(req.body as never), limit, createWriteStream(target));
-  } catch {
-    await rm(target, { force: true }); // don't leave a truncated file behind
-    return size > MAX_BYTES
-      ? tooLarge
-      : Response.json({ error: "Upload failed" }, { status: 500 });
-  }
-  return Response.json({ file });
-}
+  const saved = await saveBody(req, path.join(LIBRARY_DIR, file), MAX_BYTES);
+  if (saved !== "ok")
+    return saved === "too-large" ? tooLarge : Response.json({ error: "Upload failed" }, { status: 500 });
 
-/** GET /api/import?file=<stored name>. Supports Range so audio can seek. */
-export async function GET(req: Request) {
-  const file = new URL(req.url).searchParams.get("file") ?? "";
-  if (!STORED.test(file)) return new Response(null, { status: 400 });
-  const target = path.join(DIR, file);
-  const info = await stat(target).catch(() => null);
-  if (!info) return new Response(null, { status: 404 });
-
-  const type = TYPES[file.split(".").pop()!];
-  const headers: Record<string, string> = {
-    "Content-Type": type ?? "application/octet-stream",
-    "Content-Disposition": type ? "inline" : "attachment",
-    "X-Content-Type-Options": "nosniff",
-    "Accept-Ranges": "bytes",
+  const { cover, comic, ...meta } = await readMeta(path.join(LIBRARY_DIR, file));
+  if (comic) kind = "comic"; // an EPUB of page images belongs with the manga, not the novels
+  const named = nameMeta(name);
+  // Comic files carry release tags after the name: "Dandadan v05 (2023) (Digital) (1r0n)".
+  const tidy = (title: string | undefined) =>
+    kind === "comic" ? title?.replace(/(\s*[([][^()[\]]*[)\]])+$/, "") || title : title;
+  meta.title = tidy(meta.title);
+  const fallbackTitle = tidy(named.title)!;
+  // Comic converters sign themselves as the author.
+  if (kind === "comic" && /^(KCC|KindleComicConverter.*|Unknown)$/i.test(meta.author ?? "")) delete meta.author;
+  const author = meta.author ?? named.author ?? UNKNOWN_AUTHOR;
+  // A comic that says nothing about its series is filed by the number in its name.
+  const volume = kind === "comic" && !meta.series ? volumeOf(meta.title ?? fallbackTitle) : {};
+  const part: Part = {
+    file,
+    duration: meta.duration ?? 0,
+    name: meta.part ?? fallbackTitle,
+    track: meta.track,
   };
-  const send = (status: number, start: number, end: number) =>
-    new Response(Readable.toWeb(createReadStream(target, { start, end })) as never, {
-      status,
-      headers: { ...headers, "Content-Length": String(end - start + 1) },
-    });
 
-  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get("range") ?? "");
-  if (!range || (!range[1] && !range[2])) return send(200, 0, info.size - 1);
-  // "a-b", "a-" (to the end) or "-n" (the last n bytes)
-  const start = range[1] ? Number(range[1]) : Math.max(0, info.size - Number(range[2]));
-  const end = range[1] && range[2] ? Math.min(Number(range[2]), info.size - 1) : info.size - 1;
-  if (start > end)
-    return new Response(null, {
-      status: 416,
-      headers: { "Content-Range": `bytes */${info.size}` },
-    });
-  headers["Content-Range"] = `bytes ${start}-${end}/${info.size}`;
-  return send(206, start, end);
-}
+  if (kind === "audiobook" && meta.album) {
+    const row = db
+      .prepare(
+        `SELECT id FROM books WHERE data ->> 'kind' = 'audiobook'
+         AND data ->> 'album' = ? AND data ->> 'author' = ?`,
+      )
+      .get(meta.album, author);
+    const existing = row && getBook(String(row.id));
+    if (row && existing) {
+      const files = [...partsOf(existing), part].sort(
+        (a, b) => (a.track ?? 1e9) - (b.track ?? 1e9) || a.name.localeCompare(b.name, undefined, { numeric: true }),
+      );
+      // With several files, each file is a chapter.
+      let start = 0;
+      const chapters = files.map((f) => {
+        const chapter = { title: f.name, start };
+        start += f.duration;
+        return chapter;
+      });
+      patchBook(String(row.id), { files, chapters, duration: start, file: files[0].file });
+      return Response.json({ book: { ...getBook(String(row.id)), id: row.id }, merged: true });
+    }
+  }
 
-/** DELETE /api/import?file=<stored name>. */
-export async function DELETE(req: Request) {
-  if (crossSite(req)) return new Response(null, { status: 403 });
-  const file = new URL(req.url).searchParams.get("file") ?? "";
-  if (!STORED.test(file)) return new Response(null, { status: 400 });
-  await rm(path.join(DIR, file), { force: true });
-  return new Response(null, { status: 204 });
+  const book: BookData = {
+    title: (meta.title ?? fallbackTitle) || "Untitled",
+    author,
+    kind,
+    cover: PALETTE[fallbackTitle.length % PALETTE.length],
+    coverFile: cover && (await saveCover(cover)),
+    added: new Date().toLocaleDateString("sv"),
+    file,
+    blurb: meta.description,
+    series: meta.series ?? volume.series,
+    seriesIndex: meta.seriesIndex ?? volume.seriesIndex,
+    rtl: meta.rtl,
+    isbn: meta.isbn,
+    ...(kind === "audiobook" && {
+      narrator: meta.narrator,
+      album: meta.album,
+      duration: meta.duration,
+      chapters: meta.chapters?.length ? meta.chapters : undefined,
+      files: [part],
+    }),
+  };
+  const id = randomUUID();
+  db.prepare("INSERT INTO books (id, data) VALUES (?, ?)").run(id, JSON.stringify(book));
+  return Response.json({ book: { ...getBook(id), id } });
 }

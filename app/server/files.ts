@@ -1,0 +1,75 @@
+import { randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { rm, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { COVER_DIR } from "./db";
+
+/** Streams a request body to `target`, refusing anything over `maxBytes`. Removes the partial file on failure. */
+export async function saveBody(req: Request, target: string, maxBytes: number) {
+  let size = 0;
+  const limit = new Transform({
+    transform(chunk, _encoding, done) {
+      size += chunk.length;
+      done(size > maxBytes ? new Error("too large") : null, chunk);
+    },
+  });
+  try {
+    await pipeline(Readable.fromWeb(req.body as never), limit, createWriteStream(target));
+    return "ok" as const;
+  } catch {
+    await rm(target, { force: true });
+    return size > maxBytes ? ("too-large" as const) : ("failed" as const);
+  }
+}
+
+/** Sends a stored file, honouring Range so audio and PDFs can seek. `type` undefined = download only. */
+export async function sendFile(req: Request, target: string, type: string | undefined, cache: string) {
+  const info = await stat(target).catch(() => null);
+  if (!info) return new Response(null, { status: 404 });
+  const headers: Record<string, string> = {
+    "Content-Type": type ?? "application/octet-stream",
+    // Anything without a known type is a download, so an uploaded file can never run as a page here.
+    "Content-Disposition": type ? "inline" : "attachment",
+    "X-Content-Type-Options": "nosniff",
+    "Accept-Ranges": "bytes",
+    "Cache-Control": cache,
+  };
+  const send = (status: number, start: number, end: number) =>
+    new Response(Readable.toWeb(createReadStream(target, { start, end })) as never, {
+      status,
+      headers: { ...headers, "Content-Length": String(end - start + 1) },
+    });
+
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.get("range") ?? "");
+  if (!range || (!range[1] && !range[2])) return send(200, 0, info.size - 1);
+  // "a-b", "a-" (to the end) or "-n" (the last n bytes)
+  const start = range[1] ? Number(range[1]) : Math.max(0, info.size - Number(range[2]));
+  const end = range[1] && range[2] ? Math.min(Number(range[2]), info.size - 1) : info.size - 1;
+  if (start > end)
+    return new Response(null, {
+      status: 416,
+      headers: { "Content-Range": `bytes */${info.size}` },
+    });
+  headers["Content-Range"] = `bytes ${start}-${end}/${info.size}`;
+  return send(206, start, end);
+}
+
+/** The image type of `data` by its first bytes, or undefined when it isn't a supported image. */
+export function imageExt(data: Uint8Array) {
+  const hex = Buffer.from(data.subarray(0, 12)).toString("hex");
+  if (hex.startsWith("ffd8ff")) return "jpg";
+  if (hex.startsWith("89504e47")) return "png";
+  if (hex.startsWith("47494638")) return "gif";
+  if (hex.startsWith("52494646") && hex.slice(16) === "57454250") return "webp";
+}
+
+/** Stores a cover image and returns its stored name, or undefined when `data` is not an image. */
+export async function saveCover(data: Uint8Array) {
+  const ext = imageExt(data);
+  if (!ext || data.length > 10 * 1024 * 1024) return;
+  const name = `${randomUUID()}.${ext}`;
+  await writeFile(path.join(COVER_DIR, name), data);
+  return name;
+}

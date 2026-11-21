@@ -7,146 +7,46 @@ import {
   useRef,
   useState,
   type HTMLAttributes,
+  type InputHTMLAttributes,
   type ReactNode,
 } from "react";
-import type { Book as EpubBook, Location, Rendition } from "epubjs";
 import { ACCEPT, AUDIO, EBOOK, kindOf } from "./formats";
 import { addSession, clock, dayKey, streaks } from "./reading";
+import {
+  DOTS,
+  EmptyState,
+  Icon,
+  MENU_RULE,
+  MenuItem,
+  Popover,
+  Sheet,
+  closeClass,
+  controlClass,
+  fieldClass,
+  panelClass,
+  primaryClass,
+  sheetClass,
+  type IconName,
+} from "./ui";
+import { Reader, READABLE, extOf, pdfCover } from "./reader";
+import {
+  DEFAULT_PREFS,
+  INFO_VERSION,
+  SORTS,
+  diff,
+  type Book,
+  type Found,
+  type Kind,
+  type Saved,
+} from "./sync";
 
-type Kind = "book" | "audiobook" | "pdf";
-
-/** Best-match Open Library record. */
-type Info = { rating?: number; ratings?: number; year?: number; pages?: number };
-
-type Book = {
-  id: string;
-  title: string;
-  author: string;
-  kind: Kind;
-  cover: [string, string]; // placeholder gradient
-  added: string; // ISO date
-  want?: boolean;
-  finished?: string; // ISO date
-  rating?: number;
-  isNew?: boolean;
-  cloud?: boolean;
-  blurb?: string;
-  info?: Info | null; // null = looked up, nothing found
-  file?: string; // stored name in the server's library folder
-  series?: string;
-  seriesIndex?: number; // position within the series
-  tags?: string[];
-  progress?: number; // 0–1; set by the audio player and the EPUB reader, or by hand
-  position?: number; // audiobook playback position in seconds
-  cfi?: string; // EPUB reading position
-  opened?: number; // epoch ms of the last read/listen, orders Continue Reading
-};
-
-type Collection = { id: string; name: string; bookIds: string[] };
-type Layout = "Grid" | "List";
-
-const SORTS = ["Recent", "Title", "Author", "Manual"] as const;
-type Sort = (typeof SORTS)[number];
-
-type Saved = {
-  books: Book[];
-  collections: Collection[];
-  layouts: Record<string, Layout>;
-  sort: Sort;
-  recents: string[];
-  dailyGoal: number; // minutes
-  yearlyGoal: number; // books
-  log: Record<string, number>; // seconds read per local day
-  lookups: boolean; // fetch other readers' ratings from Open Library
-};
-
-// Set in .env.local; replaced by the signed-in account once auth exists.
-const USER = process.env.NEXT_PUBLIC_USER_NAME;
-
-// ponytail: library state lives in localStorage until the server backend exists.
-const STORAGE_KEY = "library-v1";
-
-const INITIAL: Saved = {
-  collections: [],
-  layouts: {},
-  sort: "Manual",
-  recents: [],
-  dailyGoal: 5,
-  yearlyGoal: 3,
-  log: {},
-  lookups: true,
-  // Placeholder data until the backend exists.
-  books: [
-    {
-      id: "nophek",
-      title: "Nophek Gloss",
-      author: "Essa Hansen",
-      kind: "book",
-      cover: ["#23254d", "#07070c"],
-      added: "2026-11-10",
-      finished: "2026-11-15",
-      isNew: true,
-      cloud: true,
-    },
-    {
-      id: "children",
-      title: "Children of Time",
-      author: "Adrian Tchaikovsky",
-      kind: "book",
-      cover: ["#2f9d5c", "#04201f"],
-      added: "2026-11-12",
-      finished: "2026-11-18",
-      isNew: true,
-      cloud: true,
-    },
-    {
-      id: "dune",
-      title: "Dune",
-      progress: 0.35,
-      author: "Frank Herbert",
-      kind: "book",
-      cover: ["#f0a030", "#8a3a14"],
-      added: "2026-11-14",
-      want: true,
-      blurb:
-        "Without Frank Herbert’s fantastical and foreboding masterpiece, there might never have been A Game of Thrones. His epic went beyond the whiz-bang space operatics of robots and rocket ships to present a cast of compelling, fully realized characters at each other’s throats over wealth, territory, and drugs. Set on the parched planet of Arrakis, Dune mixes Machiavellian intrigue, complex systems of religion, politics, and power, and an ecological message that still resonates today. The saga of Paul Atreides—a young, exiled prince destined to become a messianic leader—expanded readers’ notions of what science fiction could deliver and inspired writers and filmmakers to match Herbert’s enthralling vision of the future.",
-    },
-    {
-      id: "sunrise",
-      title: "Sunrise on the Reaping (The Hunger Games)",
-      author: "Suzanne Collins",
-      kind: "book",
-      cover: ["#e9e6dc", "#aeb3a6"],
-      added: "2026-11-16",
-      want: true,
-      finished: "2026-11-20",
-      blurb:
-        "Prepare to dive headfirst once again into the dystopian nation of Panem for this profound prequel to the Hunger Games series. The novel takes us back to the 50th Hunger Games competition, where we meet Katniss and Peeta’s mentor, Haymitch Abernathy. He’s just a young man from District 12 when he’s pulled into the games on his 16th birthday, changing his life forever. Suzanne Collins brilliantly uses this novel’s placement in the series to explore the true impact of the tragic events that follow. After all, we already know that Haymitch will win—and that it will cost him absolutely everything. That preordained aspect of the tale fills each twist with brutally profound meaning, not to mention tension and dread. And the series’ themes of censorship and propaganda become especially strong as key events unfold that we realize were erased from Panem’s history. We were completely immersed in this grim, gorgeously rendered world.",
-    },
-    {
-      id: "attention",
-      title: "Attention Is All You Need",
-      author: "Vaswani et al.",
-      kind: "pdf",
-      cover: ["#f4f4f1", "#f4f4f1"],
-      added: "2026-11-19",
-    },
-    {
-      id: "dune-audio",
-      title: "Dune",
-      author: "Frank Herbert",
-      kind: "audiobook",
-      cover: ["#f0a030", "#7a2f3a"],
-      added: "2026-11-20",
-      isNew: true,
-    },
-  ],
-};
+const INITIAL: Saved = { ...DEFAULT_PREFS, books: [], log: {} };
 
 const KIND_LABEL: Record<Kind, string> = {
   book: "Book",
   audiobook: "Audiobook",
   pdf: "PDF",
+  comic: "Comic",
 };
 
 const FILTERS: Record<string, (b: Book) => boolean> = {
@@ -156,6 +56,7 @@ const FILTERS: Record<string, (b: Book) => boolean> = {
   books: (b) => b.kind === "book",
   audiobooks: (b) => b.kind === "audiobook",
   pdfs: (b) => b.kind === "pdf",
+  comics: (b) => b.kind === "comic",
 };
 
 const EMPTY: Record<string, [string, string]> = {
@@ -165,35 +66,13 @@ const EMPTY: Record<string, [string, string]> = {
   books: ["No Books", "Books in your library will automatically be added to this shelf."],
   audiobooks: ["No Audiobooks", "Audiobooks in your library will automatically be added to this shelf."],
   pdfs: ["No PDFs", "PDFs in your library will automatically be added to this shelf."],
+  comics: ["No Manga or Comics", "Manga, manhwa and comics (CBZ files) in your library will automatically be added to this shelf."],
   collection: ["No Books", "To add to this shelf, choose Add to Shelf from a book or audiobook menu."],
 };
 
 const newestFirst = (a: Book, b: Book) => b.added.localeCompare(a.added);
 const bySeriesIndex = (a: Book, b: Book) => (a.seriesIndex ?? 1e9) - (b.seriesIndex ?? 1e9);
 const compact = new Intl.NumberFormat("en", { notation: "compact" }).format;
-
-// ponytail: title/author search from the browser, so it can pick the wrong edition;
-// move server-side and match on ISBN once files are ingested.
-async function lookup(b: Book): Promise<Info | null> {
-  const query = new URLSearchParams({
-    title: b.title.replace(/\s*\(.*\)$/, ""),
-    limit: "1",
-    fields: "ratings_average,ratings_count,first_publish_year,number_of_pages_median",
-  });
-  if (b.author !== UNKNOWN_AUTHOR) query.set("author", b.author);
-  const res = await fetch(`https://openlibrary.org/search.json?${query}`);
-  if (!res.ok) throw new Error(`Open Library ${res.status}`);
-  const doc = (await res.json()).docs?.[0];
-  if (!doc) return null;
-  const num = (v: unknown) =>
-    typeof v === "number" && Number.isFinite(v) ? v : undefined;
-  return {
-    rating: num(doc.ratings_average),
-    ratings: num(doc.ratings_count),
-    year: num(doc.first_publish_year),
-    pages: num(doc.number_of_pages_median),
-  };
-}
 
 type DetailState = { ids: string[]; id: string }; // ids = the list the arrows step through
 
@@ -207,8 +86,14 @@ type Lib = {
   toast: (title: string, text: string) => void;
   setView: (view: string) => void;
   setDetail: (d: DetailState | null) => void;
+  /** Opens the info page of a catalogue book that is not in the library. */
+  preview: (f: Found) => void;
+  /** Opens the "Who's reading?" profile picker. */
+  pickProfile: () => void;
   openImport: () => void;
   importFiles: (files: File[]) => void;
+  /** Puts a book the server just created or changed into the library. */
+  addBook: (book: Book) => void;
   /** Drag-to-reorder props for a book's element; empty unless the shelf is in Manual sort. */
   drag: (id: string) => HTMLAttributes<HTMLDivElement>;
   /** True when the open shelf is in Manual sort and can be reordered. */
@@ -217,166 +102,15 @@ type Lib = {
   move: (id: string, by: -1 | 1) => void;
   play: (id: string) => void;
   edit: (id: string) => void;
-  /** Opens a file in the in-app reader (EPUB, PDF, text). */
+  /** Opens a file in the in-app reader. */
   read: (id: string) => void;
+  user: Account;
+  logout: () => void;
 };
 const LibCtx = createContext<Lib>(null!);
 
-const ICONS = {
-  x: "M6 6l12 12M18 6 6 18",
-  chevronLeft: "M15 5l-7 7 7 7",
-  chevronRight: "M9 5l7 7-7 7",
-  search: "M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13ZM15.5 15.5 21 21",
-  home: "M4 10.5 12 4l8 6.5V20h-5.500v-5.500h-5V20H4Z",
-  headphones:
-    "M4 15v-3a8 8 0 0 1 16 0v3M4 14.500h2.500V20H6a2 2 0 0 1-2-2ZM20 14.500h-2.500V20H18a2 2 0 0 0 2-2Z",
-  shelf: "M4 5h4v15H4ZM8 8h4v12H8ZM13.500 6.500l3.500-1 3.500 13.500-3.500 1Z",
-  want: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM8 12h8M13 9l3 3-3 3",
-  minus: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM8 12h8",
-  finished: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM8 12.500l2.700 2.700L16 9.500",
-  book: "M12 7C10 5.500 7 5 3 5.500V18c4-.5 7 0 9 1.500 2-1.500 5-2 9-1.500V5.500C17 5 14 5.500 12 7ZM12 7v12.500",
-  doc: "M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM14 3v5h5M9 13h6M9 16.500h6",
-  lines: "M4 7h16M4 12h16M4 17h16",
-  plus: "M12 5v14M5 12h14",
-  cloud:
-    "M7 18a4 4 0 0 1-.5-7.970A5.500 5.500 0 0 1 17.200 9.500 4.300 4.300 0 0 1 17 18Z",
-  chevronDown: "M6 9l6 6 6-6",
-  check: "M5 12.500l4.500 4.500L19 7",
-  grid: "M5 5h5v5H5ZM14 5h5v5h-5ZM5 14h5v5H5ZM14 14h5v5h-5Z",
-  list: "M9 7h11M9 12h11M9 17h11M4.500 7h.01M4.500 12h.01M4.500 17h.01",
-  trash: "M5 7h14M10 7V4.500h4V7M7 7l1 13h8l1-13",
-  star: "M12 3.500l2.600 5.400 5.900.8-4.300 4.100 1 5.900L12 16.900l-5.200 2.800 1-5.900L3.500 9.700l5.900-.8Z",
-  settings: "M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4",
-  import: "M12 4v10M8 10l4 4 4-4M5 18h14",
-  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.500 9.500a2.500 2.500 0 1 1 3.500 2.300c-.7.4-1 .9-1 1.700M12 16.500h.01",
-  logout: "M10 5H6a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h4M14 8l4 4-4 4M18 12H9",
-  tag: "M4 4h7l9 9-7 7-9-9ZM8 8h.01",
-  play: "M7 5v14l12-7Z",
-  pause: "M8 5v14M16 5v14",
-  moon: "M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500Z",
-  chart: "M5 20V10M12 20V4M19 20v-7",
-  pencil: "M4 20h4L19 9l-4-4L4 16ZM13.500 6.500l4 4",
-  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3 2",
-  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4.500 20a7.500 7.500 0 0 1 15 0",
-};
-type IconName = keyof typeof ICONS;
-
-function Icon({
-  name,
-  className = "size-[22px]",
-  fill = "none",
-  strokeWidth = 1.7,
-}: {
-  name: IconName;
-  className?: string;
-  fill?: string;
-  strokeWidth?: number;
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill={fill}
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`shrink-0 ${className}`}
-      aria-hidden
-    >
-      <path d={ICONS[name]} />
-    </svg>
-  );
-}
-
-const DOTS = (
-  <svg viewBox="0 0 18 6" className="w-[18px]" fill="currentColor" aria-hidden>
-    <circle cx="3" cy="3" r="1.7" />
-    <circle cx="9" cy="3" r="1.7" />
-    <circle cx="15" cy="3" r="1.7" />
-  </svg>
-);
-
-/** Button that toggles a floating menu; any click inside or outside the menu closes it. */
-function Popover({
-  label,
-  button,
-  buttonClass,
-  panelClass,
-  children,
-}: {
-  label: string;
-  button: ReactNode;
-  buttonClass: string;
-  panelClass: string; // position + width
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div
-      className="relative"
-      onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-    >
-      <button
-        aria-label={label}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className={`relative ${open ? "z-30" : ""} ${buttonClass}`}
-      >
-        {button}
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div
-            role="menu"
-            onClick={() => setOpen(false)}
-            className={`absolute z-30 rounded-xl border border-white/15 bg-[#222] p-[5px] font-sans font-normal text-[#f2f2f2] shadow-2xl ${panelClass}`}
-          >
-            {children}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** `checked` (even false) reserves the checkmark gutter so a group of items lines up. */
-function MenuItem({
-  label,
-  icon,
-  checked,
-  onClick,
-}: {
-  label: string;
-  icon?: IconName;
-  checked?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      role="menuitem"
-      onClick={onClick}
-      className="flex h-[25.500px] w-full items-center rounded-lg px-[6px] text-left text-[13px] hover:bg-white/10"
-    >
-      {checked !== undefined && (
-        <span className="w-[22px]">
-          {checked && <Icon name="check" className="size-[14px]" strokeWidth={2.4} />}
-        </span>
-      )}
-      {icon && (
-        <span className="w-[22px] text-[#b4b4b4]">
-          <Icon name={icon} className="size-[14px]" />
-        </span>
-      )}
-      <span className="truncate">{label}</span>
-    </button>
-  );
-}
-
-const MENU_RULE = <hr className="mx-2 my-[5px] border-white/10" />;
-
 function BookMenu({ book, align = "right-0" }: { book: Book; align?: string }) {
-  const { s, set, toggleWant, toggleFinished, toast, newCollection, edit, sortable, move } =
+  const { s, set, toggleWant, toggleFinished, toast, newCollection, edit, sortable, move, user } =
     useContext(LibCtx);
   return (
     <Popover
@@ -397,6 +131,20 @@ function BookMenu({ book, align = "right-0" }: { book: Book; align?: string }) {
         onClick={() => toggleFinished(book)}
       />
       <MenuItem icon="pencil" label="Edit Details…" onClick={() => edit(book.id)} />
+      {/* Manga in EPUB form that wasn't recognised as such, or a book that was mistaken for one. */}
+      {/\.(epub|cbz)$/.test(book.file ?? "") && (
+        <MenuItem
+          icon={book.kind === "comic" ? "book" : "panels"}
+          label={book.kind === "comic" ? "Move to Books" : "Move to Manga & Comics"}
+          onClick={() =>
+            set((prev) => ({
+              books: prev.books.map((b) =>
+                b.id === book.id ? { ...b, kind: book.kind === "comic" ? "book" : "comic" } : b,
+              ),
+            }))
+          }
+        />
+      )}
       {sortable && (
         <>
           <MenuItem icon="chevronLeft" label="Move Earlier" onClick={() => move(book.id, -1)} />
@@ -438,25 +186,34 @@ function BookMenu({ book, align = "right-0" }: { book: Book; align?: string }) {
         label="New Shelf"
         onClick={() => newCollection(book.id)}
       />
-      {MENU_RULE}
-      <MenuItem
-        icon="trash"
-        label="Remove…"
-        onClick={() => {
-          const warning = book.file ? " Its file will be deleted from the server." : "";
-          if (!confirm(`Remove “${book.title}” from your library?${warning}`)) return;
-          // ponytail: a failed delete just leaves an orphan file in the library folder
-          if (book.file)
-            fetch(`/api/import?file=${book.file}`, { method: "DELETE" }).catch(() => {});
-          set((prev) => ({
-            books: prev.books.filter((b) => b.id !== book.id),
-            collections: prev.collections.map((c) => ({
-              ...c,
-              bookIds: c.bookIds.filter((id) => id !== book.id),
-            })),
-          }));
-        }}
-      />
+      {/* Removing deletes the book and its files for everyone, so only the admin can.
+          A book without a file (added from Discover) only leaves your own lists. */}
+      {(user.admin || !book.file) && (
+        <>
+          {MENU_RULE}
+          <MenuItem
+            icon="trash"
+            label="Remove…"
+            onClick={() => {
+              if (
+                !confirm(
+                  book.file
+                    ? `Remove “${book.title}”? Its file is deleted from the server, for everyone.`
+                    : `Remove “${book.title}” from your lists?`,
+                )
+              )
+                return;
+              set((prev) => ({
+                books: prev.books.filter((b) => b.id !== book.id),
+                collections: prev.collections.map((c) => ({
+                  ...c,
+                  bookIds: c.bookIds.filter((id) => id !== book.id),
+                })),
+              }));
+            }}
+          />
+        </>
+      )}
     </Popover>
   );
 }
@@ -494,7 +251,31 @@ function Stars({ book, className }: { book: Book; className: string }) {
   );
 }
 
-/** Placeholder cover art: ebooks and PDFs are always 2:3, audiobooks square. */
+/** Saves a copy of the book's file (every part, for an audiobook) to this device. */
+function CloudButton({ book }: { book: Book }) {
+  const parts = book.files?.length ? book.files.map((f) => f.file) : book.file ? [book.file] : [];
+  if (!parts.length) return null;
+  return (
+    <button
+      aria-label={`Download ${book.title}`}
+      title="Download to this device"
+      onClick={() =>
+        parts.forEach((file, i) => {
+          const link = document.createElement("a");
+          link.href = `/api/file?file=${file}`;
+          // Named after the book rather than the stored id; parts are numbered.
+          link.download = `${book.title.replace(/[\\/:*?"<>|]/g, " ").trim()}${parts.length > 1 ? ` ${i + 1}` : ""}.${extOf(file)}`;
+          link.click();
+        })
+      }
+      className="block hover:text-white"
+    >
+      <Icon name="cloudDown" className="size-5" strokeWidth={1.4} />
+    </button>
+  );
+}
+
+/** Cover art, or a generated stand-in: ebooks and PDFs are always 2:3, audiobooks square. */
 function Cover({ book, w }: { book: Book; w: number }) {
   const size = {
     width: w,
@@ -502,7 +283,19 @@ function Cover({ book, w }: { book: Book; w: number }) {
     fontSize: w * 0.07,
   };
   const frame =
-    "relative flex shrink-0 flex-col overflow-hidden rounded-[2px] shadow-[0_8px_18px_rgba(0,0,0,0.55)]";
+    "relative flex shrink-0 flex-col overflow-hidden rounded-[3px] shadow-[0_8px_18px_rgba(0,0,0,0.55)]";
+
+  if (book.coverFile)
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- served by the app's own file route, behind sign-in
+      <img
+        src={`/api/file?cover=${book.coverFile}`}
+        alt=""
+        loading="lazy"
+        className={`${frame} bg-[#2e2e2e] object-cover`}
+        style={size}
+      />
+    );
 
   // Stand-in for the rendered first page of the PDF.
   if (book.kind === "pdf")
@@ -586,8 +379,8 @@ function Grid({ books, group = false }: { books: Book[]; group?: boolean }) {
               className="w-[188px] text-left"
             >
               <div className="relative">
-                <span className="absolute inset-x-4 -top-[10px] h-4 rounded-[2px] bg-white/10" />
-                <span className="absolute inset-x-2 -top-[5px] h-4 rounded-[2px] bg-white/20" />
+                <span className="absolute inset-x-4 -top-[10px] h-4 rounded-[3px] bg-white/10" />
+                <span className="absolute inset-x-2 -top-[5px] h-4 rounded-[3px] bg-white/20" />
                 <Cover book={stack.toSorted(bySeriesIndex)[0]} w={188} />
               </div>
               <div className="mt-[10px] flex h-5 items-center justify-between gap-2 text-[13px]">
@@ -602,13 +395,13 @@ function Grid({ books, group = false }: { books: Book[]; group?: boolean }) {
             <CoverButton book={b} w={188} ids={ids} />
             <div className="mt-[10px] flex h-5 items-center gap-[6px] text-[#a8a8a8]">
               {b.kind === "audiobook" && <Icon name="headphones" className="size-4" />}
-              {b.isNew && (
+              {!b.opened && !b.finished && (
                 <span className="rounded-full bg-[#1f3b68] px-[7px] py-[2px] text-[11px] font-bold leading-[14px] tracking-wide text-[#cfe0ff]">
                   NEW
                 </span>
               )}
               <span className="grow" />
-              {b.cloud && <Icon name="cloud" className="size-5" strokeWidth={1.3} />}
+              <CloudButton book={b} />
               <BookMenu book={b} />
             </div>
           </div>
@@ -718,20 +511,11 @@ function Timeline({ books }: { books: Book[] }) {
             </div>
             <div className="mt-[18px] flex items-center gap-[10px] text-[#a8a8a8]">
               <BookMenu book={b} align="left-0" />
-              {b.cloud && <Icon name="cloud" className="size-5" strokeWidth={1.3} />}
+              {!b.opened && <span className="text-[12px]">Not opened yet</span>}
             </div>
           </div>
         </div>
       ))}
-    </div>
-  );
-}
-
-function EmptyState({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="mx-auto mt-[150px] max-w-[290px] text-center text-[#8e8e8e]">
-      <h2 className="font-serif text-[21px] font-bold">{title}</h2>
-      <p className="mt-[10px] text-[14.500px] leading-[18px]">{text}</p>
     </div>
   );
 }
@@ -760,13 +544,62 @@ function Section({
   );
 }
 
-const panelClass = "relative rounded-2xl bg-[#2e2e2e] md:mr-[33px]";
-
-const fieldClass =
-  "h-[36px] w-full rounded-lg border border-white/15 bg-white/5 px-3 text-[14px] outline-none focus:border-white/50";
-const primaryClass =
-  "rounded-full bg-white text-[13px] font-bold text-black hover:bg-white/85";
-const sheetClass = "rounded-[28px] bg-[#2c2c2e] px-8 pt-[76px] pb-8 shadow-2xl";
+/** Number input with the app's own up/down arrows. Reports whole numbers from 1 to `max`. */
+function NumberField({
+  label,
+  name,
+  value,
+  max,
+  onPick,
+  className,
+}: {
+  label: string;
+  name?: string;
+  value: number;
+  max: number;
+  onPick?: (n: number) => void;
+  className: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const pick = () => {
+    const n = Math.round(Number(ref.current!.value));
+    if (n >= 1 && n <= max) onPick?.(n);
+  };
+  return (
+    <span className="relative inline-block shrink-0">
+      <input
+        ref={ref}
+        name={name}
+        aria-label={label}
+        type="number"
+        min={1}
+        max={max}
+        defaultValue={value}
+        required
+        onChange={pick}
+        className={`${className} !pr-6 !pl-2 text-center`}
+      />
+      <span className="absolute inset-y-[3px] right-[3px] flex w-5 flex-col text-[#b4b4b4]">
+        {([1, -1] as const).map((by) => (
+          <button
+            key={by}
+            type="button"
+            tabIndex={-1} // the arrow keys already do this from the field
+            aria-label={`${by > 0 ? "Increase" : "Decrease"} ${label}`}
+            onClick={() => {
+              if (by > 0) ref.current!.stepUp();
+              else ref.current!.stepDown();
+              pick();
+            }}
+            className="flex min-h-0 flex-1 items-center justify-center rounded hover:bg-white/15 hover:text-white"
+          >
+            <Icon name={by > 0 ? "chevronUp" : "chevronDown"} className="size-3" strokeWidth={2.4} />
+          </button>
+        ))}
+      </span>
+    </span>
+  );
+}
 
 function GoalSheet({
   title,
@@ -804,15 +637,12 @@ function GoalSheet({
         <h2 className="font-serif text-[24px] font-bold">{title}</h2>
         <p className="mt-1 text-[14px] text-[#a0a0a0]">{text}</p>
         <label className="mt-6 flex items-center gap-3">
-          <input
+          <NumberField
+            label={title}
             name="goal"
-            type="number"
-            min={1}
+            value={value}
             max={max}
-            defaultValue={value}
-            required
-            autoFocus
-            className={`${fieldClass} !w-[110px] text-center text-[18px] font-bold`}
+            className={`${fieldClass} !w-[84px] text-[18px] font-bold`}
           />
           <span className="text-[14px] text-[#a0a0a0]">
             {unit}s (1–{max})
@@ -842,31 +672,6 @@ function GoalSheet({
 const DAILY_OPTIONS = [5, 10, 15, 20, 30, 45, 60];
 const YEARLY_OPTIONS = [1, 3, 5, 10, 12, 20, 24, 36, 52];
 
-/** Stand-in for an open-book preview until real pages can be rendered. */
-function Spread({ book }: { book: Book }) {
-  const lines = (n: number) =>
-    Array.from({ length: n }, (_, i) => (
-      <span
-        key={i}
-        className="h-[2px] shrink-0 rounded bg-black/15"
-        style={{ width: `${72 + ((i * 37) % 28)}%` }}
-      />
-    ));
-  const page = "flex w-1/2 flex-col justify-between bg-[#f4f4f1] px-[6%] py-[7%] text-[#222]";
-  return (
-    <div className="flex aspect-[3/2] w-full gap-[2px] rounded-[3px] bg-[#111] p-[5px] shadow-[0_10px_24px_rgba(0,0,0,0.55)]">
-      <div className={page}>
-        <span className="text-center font-serif text-[clamp(13px,2vw,22px)] leading-tight font-bold">
-          {book.title}
-        </span>
-        <span className="text-center text-[11px]">{book.author}</span>
-        {lines(8)}
-      </div>
-      <div className={page}>{lines(14)}</div>
-    </div>
-  );
-}
-
 function Home() {
   const { s, set, setView, setDetail, play, read: openReader } = useContext(LibCtx);
   const [goalEdit, setGoalEdit] = useState<"daily" | "yearly" | null>(null);
@@ -892,7 +697,7 @@ function Home() {
   const open = (b: Book) =>
     b.kind === "audiobook" && b.file
       ? play(b.id)
-      : b.file && READABLE.test(b.file)
+      : canRead(b)
         ? openReader(b.id)
         : setDetail({ ids: readingIds, id: b.id });
   const percent = (b: Book) => `${Math.round(b.progress! * 100)}%`;
@@ -909,47 +714,31 @@ function Home() {
 
   return (
     <>
-      {current && (
-        <section className="mb-[34px] md:mr-[33px]">
-          <div className="max-w-[560px]">
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label={`Continue ${current.title}`}
-              onClick={() => open(current)}
-              onKeyDown={(e) => e.key === "Enter" && open(current)}
-              className="cursor-pointer"
-            >
-              {current.kind === "audiobook" ? (
-                <Cover book={current} w={240} />
-              ) : (
-                <Spread book={current} />
-              )}
-            </div>
-            <p className="mt-4 text-[17px]">{current.title}</p>
-            <div className="mt-1 flex items-center justify-between text-[13px] text-[#9a9a9a]">
-              {percent(current)}
-              <BookMenu book={current} />
-            </div>
-          </div>
-          {reading.length > 1 && (
-            <>
-              <h2 className="mt-6 mb-4 border-t border-white/10 pt-5 text-[13px] tracking-[0.12em] text-[#c8c8c8] uppercase">
-                Recently Opened
-              </h2>
-              <div className="flex flex-wrap gap-x-6 gap-y-5">
-                {reading.slice(1).map((b) => (
-                  <div key={b.id} className="w-[112px]">
-                    <CoverButton book={b} w={112} ids={readingIds} />
-                    <div className="mt-2 flex items-center justify-between text-[13px] text-[#9a9a9a]">
-                      {percent(b)}
-                      <BookMenu book={b} align="left-0" />
-                    </div>
-                  </div>
-                ))}
+      {reading.length > 0 && (
+        // Everything in progress, most recent first. Bottom-aligned, so a square audiobook
+        // cover stands on the same line as the books and is only shorter at the top.
+        <section className="mb-[34px] flex flex-wrap items-end gap-x-[27px] gap-y-8 md:mr-[33px]">
+          {reading.map((b) => (
+            <div key={b.id} className="w-[188px]">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Continue ${b.title}`}
+                onClick={() => open(b)}
+                onKeyDown={(e) => e.key === "Enter" && open(b)}
+                className="cursor-pointer"
+              >
+                <Cover book={b} w={188} />
               </div>
-            </>
-          )}
+              <p className="mt-3 truncate text-[15px]" title={b.title}>
+                {b.title}
+              </p>
+              <div className="mt-1 flex items-center justify-between text-[13px] text-[#9a9a9a]">
+                {percent(b)}
+                <BookMenu book={b} align="left-0" />
+              </div>
+            </div>
+          ))}
         </section>
       )}
 
@@ -1087,7 +876,7 @@ function Home() {
           {Array.from({ length: slots - shown.length }, (_, i) => (
             <div
               key={i}
-              className="flex items-center justify-center rounded-[2px] border border-dashed border-white/15 font-serif text-white/15"
+              className="flex items-center justify-center rounded-[3px] border border-dashed border-white/15 font-serif text-white/15"
               style={{ width: w, height: w * 1.5, fontSize: w * 0.27 }}
             >
               {read.length + i + 1}
@@ -1164,48 +953,13 @@ function Result({ book, w, ids }: { book: Book; w: number; ids: string[] }) {
   );
 }
 
-const closeClass =
-  "absolute top-5 left-5 flex size-[38px] items-center justify-center rounded-full border border-white/15 hover:bg-white/10";
-
-/** Modal over the blurred page (the sidebar stays usable on desktop). Escape or a click outside closes it. */
-function Sheet({
-  label,
-  onClose,
-  className,
-  children,
-}: {
-  label: string;
-  onClose: () => void;
-  className: string; // size of the content box
-  children: ReactNode;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      onClick={onClose}
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-2xl md:left-[221px]"
-    >
-      <div onClick={(e) => e.stopPropagation()} className={`relative ${className}`}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 const FORMATS = `Books: ${EBOOK.join(", ").toUpperCase()}. Audiobooks: ${AUDIO.join(", ").toUpperCase()}.`;
 
 function ImportSheet({ onClose }: { onClose: () => void }) {
   const { importFiles } = useContext(LibCtx);
   return (
     <Sheet label="Import" onClose={onClose} className="w-[560px] max-w-[calc(100%-32px)]">
-      <div className="rounded-[28px] bg-[#2c2c2e] px-8 pt-[76px] pb-8 shadow-2xl">
+      <div className={sheetClass}>
         <button aria-label="Close" onClick={onClose} className={closeClass}>
           <Icon name="x" className="size-5" />
         </button>
@@ -1215,14 +969,31 @@ function ImportSheet({ onClose }: { onClose: () => void }) {
         </p>
         <label className="mt-6 flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-white/20 bg-white/5 px-6 py-12 text-center focus-within:border-white/50 hover:bg-white/10">
           <Icon name="import" className="size-9 text-[#a0a0a0]" />
-          <span className="text-[15px] font-bold">Drop files here or click to choose</span>
+          <span className="text-[15px] font-bold">Drop files or folders here, or click to choose files</span>
           <span className="text-[13px] text-[#a0a0a0]">
-            You can also drop files anywhere in the window.
+            You can also drop them anywhere in the window.
           </span>
           <input
             type="file"
             multiple
             accept={ACCEPT}
+            className="sr-only"
+            onChange={(e) => {
+              importFiles([...(e.target.files ?? [])]);
+              onClose();
+            }}
+          />
+        </label>
+        <label
+          className={`${controlClass} mt-3 flex w-fit cursor-pointer items-center gap-2 focus-within:bg-white/15`}
+        >
+          <Icon name="folder" className="size-4" />
+          Choose a Folder…
+          <input
+            type="file"
+            multiple
+            // Not in React's types; picks a folder and everything inside it, subfolders included.
+            {...{ webkitdirectory: "" }}
             className="sr-only"
             onChange={(e) => {
               importFiles([...(e.target.files ?? [])]);
@@ -1246,7 +1017,7 @@ function SettingRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-white/10 px-5 py-4 last:border-0">
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-4">
       <div className="min-w-0">
         <p className="text-[14px] font-bold">{title}</p>
         <p className="text-[13px] text-[#a0a0a0]">{text}</p>
@@ -1256,13 +1027,30 @@ function SettingRow({
   );
 }
 
-const controlClass =
-  "h-[30px] shrink-0 rounded-lg bg-white/10 px-3 text-[13px] font-bold hover:bg-white/15 [&>option]:bg-[#2e2e2e]";
-
 const HELP: [string, string][] = [
   [
     "Importing",
-    `Drop files anywhere in the window, or use Import on Home or in the profile menu. ${FORMATS} Files are copied to the server’s library folder; the title comes from the file name, and Edit Details in a book’s ••• menu fixes the rest.`,
+    `Drop files or whole folders anywhere in the window, or use Import on Home or in the profile menu. A card in the bottom corner shows progress; open it to see each file. ${FORMATS} Other files in a folder are skipped. The title, author, description, series and cover are read from the file; anything missing is looked up online, and Edit Details in a book’s ••• menu fixes the rest. Audio files that share an album tag become one audiobook.`,
+  ],
+  [
+    "Finding new books",
+    "Search shows trending and new books from Open Library and manga and manhwa from AniList, and searches both as you type. Want to Read on one of them adds it to your Want to Read list without a file; removing it from the list takes it away again. 18+ titles are left out of these lists; what you import yourself is never filtered.",
+  ],
+  [
+    "Manga and comics",
+    "CBZ files go to Manga & Comics. Volumes named like “One Piece v03” are grouped into a series. In the reader, choose Left to Right, Right to Left (manga) or Scroll (webtoon); the choice is remembered per book.",
+  ],
+  [
+    "Reviews",
+    "Write a Review on a book’s page. Reviews are kept on this server and shown to everyone who uses it, with the stars you gave the book.",
+  ],
+  [
+    "Profiles",
+    "One sign-in can hold up to 8 profiles, each with its own shelves, progress, goals, stats and reviews. Add them under Settings → Account, and change who’s reading with Switch Profile in the account menu. Books of one series can be collapsed into a stack with Stack Series in a shelf’s ••• menu.",
+  ],
+  [
+    "Forgotten password",
+    "Choose Forgot password? on the sign-in page. This server can’t send email, so the reset code appears for the admin under Settings → Account, and in the server log. It works for 30 minutes.",
   ],
   [
     "Shelves, series and tags",
@@ -1277,22 +1065,277 @@ const HELP: [string, string][] = [
     "Want to Read shows what other readers think, from Open Library. Once you finish a book the stars are yours: click one to rate, click it again for half a star less, and a third time to clear.",
   ],
   [
+    "Reading",
+    "EPUB, PDF, comic (CBZ) and text files open in the reader. In an EPUB you can search, jump by chapter, bookmark a page, change text size and theme, and select text to highlight it or add a note. The cloud button on a book saves a copy of its file to your device.",
+  ],
+  [
     "Reading goals",
     "Time counts on its own while a book or PDF is open in the reader, or an audiobook is playing. Days that reach your daily goal build your streak.",
   ],
   [
     "Your data",
-    "Shelves, ratings, progress and goals are saved in this browser only. Imported files live on the server.",
+    "Everything is saved on the server under your account, so any browser you sign in from shows the same library, progress and stats. Books are shared with everyone on the server; shelves, ratings, progress and goals are your own.",
   ],
 ];
 
 const SETTINGS_TABS: [id: string, label: string, icon: IconName][] = [
-  ["profile", "Profile", "user"],
+  ["profile", "Account", "user"],
   ["goals", "Reading Goals", "finished"],
   ["online", "Online", "cloud"],
   ["library", "Library", "shelf"],
   ["help", "Help", "help"],
 ];
+
+type Account = {
+  id: number;
+  account: number; // the profile that signs in; other profiles share its email and password
+  name: string;
+  email: string;
+  admin: boolean;
+  reset?: string | null;
+};
+type Profile = { id: number; name: string };
+
+const loadProfiles = (): Promise<Profile[]> =>
+  fetch("/api/auth")
+    .then((res) => res.json())
+    .then((body) => body.profiles ?? [])
+    .catch(() => []);
+
+/** The people sharing this sign-in. Each has their own shelves, progress, stats and reviews. */
+function Profiles() {
+  const { user, toast } = useContext(LibCtx);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const load = () => loadProfiles().then(setProfiles);
+  useEffect(() => {
+    load();
+  }, []);
+  return (
+    <>
+      {profiles.map((p) => (
+        <SettingRow
+          key={p.id}
+          title={p.name}
+          text={p.id === user.id ? "In use now" : p.id === user.account ? "The account’s own profile" : "Profile"}
+        >
+          {p.id !== user.id && p.id !== user.account && (
+            <button
+              onClick={async () => {
+                if (!confirm(`Remove ${p.name}? Their shelves, ratings and progress are deleted.`)) return;
+                setError(await authCall({ action: "removeProfile", id: p.id }));
+                load();
+              }}
+              className={`${controlClass} text-[#ff6b61]`}
+            >
+              Remove
+            </button>
+          )}
+        </SettingRow>
+      ))}
+      <SettingRow
+        title="Add a profile"
+        text="For someone who shares this sign-in. Pick who’s reading from the account menu."
+      >
+        <form
+          className="flex gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.currentTarget;
+            const name = String(new FormData(form).get("name"));
+            const failed = await authCall({ action: "addProfile", name });
+            setError(failed);
+            if (failed) return;
+            form.reset();
+            toast("Added", `${name} now has a profile.`);
+            load();
+          }}
+        >
+          <input
+            name="name"
+            aria-label="Profile name"
+            placeholder="Name"
+            required
+            maxLength={40}
+            className={`${fieldClass} !h-[30px] !w-[160px]`}
+          />
+          <button className={controlClass}>Add</button>
+        </form>
+      </SettingRow>
+      {error && (
+        <p role="alert" className="px-5 text-[13px] text-[#ff6b61]">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** "Who's reading?": choose which of the account's profiles to use. */
+function ProfilePicker({
+  auto,
+  onPick,
+  onClose,
+  onManage,
+}: {
+  auto: boolean; // shown right after signing in: skipped when there is only one profile
+  onPick: (id: number) => void;
+  onClose: () => void;
+  onManage: () => void;
+}) {
+  const { user } = useContext(LibCtx);
+  const [profiles, setProfiles] = useState<Profile[] | null>(null);
+  useEffect(() => {
+    loadProfiles().then((list) => (auto && list.length < 2 ? onClose() : setProfiles(list)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!profiles) return null;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose a profile"
+      className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-10 bg-[#1e1e1e] p-6"
+    >
+      <h1 className="font-serif text-[34px] font-bold">Who’s reading?</h1>
+      <div className="flex flex-wrap justify-center gap-7">
+        {profiles.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => (p.id === user.id ? onClose() : onPick(p.id))}
+            className="group flex w-[120px] flex-col items-center gap-3"
+          >
+            <span className="flex size-[120px] items-center justify-center rounded-2xl bg-[#3a3a3c] font-serif text-[48px] font-bold ring-white group-hover:ring-2 group-focus-visible:ring-2">
+              {p.name[0]?.toUpperCase()}
+            </span>
+            <span className="w-full truncate text-center text-[14px] text-[#a0a0a0] group-hover:text-white">
+              {p.name}
+            </span>
+          </button>
+        ))}
+      </div>
+      <button onClick={onManage} className={controlClass}>
+        Manage Profiles
+      </button>
+    </div>
+  );
+}
+
+/** Calls the auth API; resolves to an error message, or null when it worked. */
+async function authCall(body: Record<string, unknown>) {
+  try {
+    const res = await fetch("/api/auth", { method: "POST", body: JSON.stringify(body) });
+    return res.ok ? null : String((await res.json()).error ?? "Something went wrong.");
+  } catch {
+    return "Can’t reach the server.";
+  }
+}
+
+/** A name + password form; `onSubmit` resolves to an error message or null. */
+function Credentials({
+  labels,
+  button,
+  onSubmit,
+}: {
+  labels: [first: string, second: string];
+  button: string;
+  onSubmit: (first: string, second: string) => Promise<string | null>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const secret = labels[0].includes("assword");
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const form = e.currentTarget;
+        const data = new FormData(form);
+        const failed = await onSubmit(String(data.get("first")), String(data.get("second")));
+        setError(failed);
+        if (!failed) form.reset();
+      }}
+    >
+      <input
+        name="first"
+        type={secret ? "password" : "text"}
+        autoComplete={secret ? "current-password" : "off"}
+        aria-label={labels[0]}
+        placeholder={labels[0]}
+        required
+        className={`${fieldClass} !h-[30px] !w-[150px]`}
+      />
+      <input
+        name="second"
+        type="password"
+        autoComplete="new-password"
+        aria-label={labels[1]}
+        placeholder={labels[1]}
+        required
+        minLength={8}
+        className={`${fieldClass} !h-[30px] !w-[150px]`}
+      />
+      <button className={controlClass}>{button}</button>
+      {error && <p className="w-full text-[12px] text-[#ff6b61]">{error}</p>}
+    </form>
+  );
+}
+
+/** Admin only: the people who can sign in to this server. */
+function Users() {
+  const { user } = useContext(LibCtx);
+  const [users, setUsers] = useState<Account[]>([]);
+  const [signups, setSignups] = useState(true);
+  const load = () =>
+    fetch("/api/auth")
+      .then((res) => res.json())
+      .then((body) => {
+        setUsers(body.users ?? []);
+        setSignups(body.signups);
+      })
+      .catch(() => {});
+  useEffect(() => {
+    load();
+  }, []);
+  return (
+    <>
+      <SettingRow
+        title="Allow new accounts"
+        text="Anyone who can open this server can create an account from the sign-in page. Turn this off once everyone has joined."
+      >
+        <input
+          type="checkbox"
+          aria-label="Allow new accounts"
+          checked={signups}
+          onChange={async (e) => {
+            setSignups(e.target.checked);
+            await authCall({ action: "signups", allow: e.target.checked });
+          }}
+        />
+      </SettingRow>
+      {users.map((u) => (
+        <SettingRow
+          key={u.id}
+          title={u.name}
+          text={`${u.email} • ${u.admin ? "Admin" : "Reader"}${u.reset ? ` • Forgot their password: give them reset code ${u.reset}` : ""}`}
+        >
+          {u.id !== user.id && (
+            <button
+              onClick={async () => {
+                if (!confirm(`Remove ${u.name}? Their shelves, ratings and progress are deleted.`))
+                  return;
+                await authCall({ action: "removeUser", id: u.id });
+                load();
+              }}
+              className={`${controlClass} text-[#ff6b61]`}
+            >
+              Remove
+            </button>
+          )}
+        </SettingRow>
+      ))}
+    </>
+  );
+}
 
 function SettingsSheet({
   tab,
@@ -1303,26 +1346,47 @@ function SettingsSheet({
   onTab: (tab: string) => void;
   onClose: () => void;
 }) {
-  const { s, set, openImport, toast } = useContext(LibCtx);
+  const { s, set, openImport, toast, user, logout } = useContext(LibCtx);
   const goalInput = (label: string, value: number, max: number, onPick: (n: number) => void) => (
-    <input
-      aria-label={label}
-      type="number"
-      min={1}
-      max={max}
+    <NumberField
+      label={label}
       value={value}
-      onChange={(e) => {
-        const n = Math.round(Number(e.target.value));
-        if (n >= 1 && n <= max) onPick(n);
-      }}
-      className={`${controlClass} w-[84px] text-center`}
+      max={max}
+      onPick={onPick}
+      className={`${controlClass} w-[68px]`}
     />
   );
   const body: Record<string, ReactNode> = {
     profile: (
-      <SettingRow title="Name" text="Set NEXT_PUBLIC_USER_NAME in .env.local on the server.">
-        <span className="text-[13px] font-bold">{NAME}</span>
-      </SettingRow>
+      <>
+        <SettingRow
+          title={user.name}
+          text={`${user.email} • ${user.admin ? "Admin of this server" : "Reader"}`}
+        >
+          <button onClick={logout} className={controlClass}>
+            Log Out
+          </button>
+        </SettingRow>
+        <SettingRow title="Change password" text="At least 8 characters.">
+          <Credentials
+            labels={["Current password", "New password"]}
+            button="Change"
+            onSubmit={async (current, next) => {
+              const failed = await authCall({ action: "password", current, next });
+              if (!failed) toast("Saved", "Your password was changed.");
+              return failed;
+            }}
+          />
+        </SettingRow>
+        <h3 className="px-5 pt-5 pb-2 text-[15px] font-bold">Profiles</h3>
+        <Profiles />
+        {user.admin && (
+          <>
+            <h3 className="px-5 pt-5 pb-2 text-[15px] font-bold">Accounts on This Server</h3>
+            <Users />
+          </>
+        )}
+      </>
     ),
     goals: (
       <>
@@ -1341,15 +1405,14 @@ function SettingsSheet({
     ),
     online: (
       <SettingRow
-        title="Reader ratings"
-        text="Look up other readers’ ratings on Open Library by title and author."
+        title="Online lookups"
+        text="Fill in missing covers, descriptions and other readers’ ratings, and show new and trending books in Search, from Open Library. The server sends it the book’s ISBN, or its title and author."
       >
         <input
           type="checkbox"
-          aria-label="Reader ratings"
+          aria-label="Online lookups"
           checked={s.lookups}
           onChange={(e) => set(() => ({ lookups: e.target.checked }))}
-          className="size-[18px] accent-[#1c9be6]"
         />
       </SettingRow>
     ),
@@ -1374,25 +1437,10 @@ function SettingsSheet({
             Clear
           </button>
         </SettingRow>
-        <SettingRow
-          title="Reset library"
-          text="Forget every book, shelf, rating and goal saved in this browser. Imported files stay on the server."
-        >
-          <button
-            onClick={() => {
-              if (!confirm("Reset the library in this browser? This can’t be undone.")) return;
-              localStorage.removeItem(STORAGE_KEY);
-              location.reload();
-            }}
-            className={`${controlClass} text-[#ff6b61]`}
-          >
-            Reset
-          </button>
-        </SettingRow>
       </>
     ),
     help: HELP.map(([title, text]) => (
-      <div key={title} className="border-b border-white/10 px-5 py-4 last:border-0">
+      <div key={title} className="px-5 py-4">
         <p className="text-[14px] font-bold">{title}</p>
         <p className="mt-1 text-[13px] leading-[19px] text-[#a0a0a0]">{text}</p>
       </div>
@@ -1404,7 +1452,7 @@ function SettingsSheet({
       onClose={onClose}
       className="h-[640px] max-h-[calc(100%-32px)] w-[920px] max-w-[calc(100%-32px)]"
     >
-      <div className="flex h-full flex-col overflow-hidden rounded-[18px] border border-white/10 bg-[#1e1e1e] shadow-2xl">
+      <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#1e1e1e] shadow-2xl">
         <header className="flex items-center justify-between border-b border-white/10 py-3 pr-3 pl-5">
           <h2 className="text-[15px] font-bold">Settings</h2>
           <button
@@ -1416,7 +1464,7 @@ function SettingsSheet({
           </button>
         </header>
         <div className="flex min-h-0 grow max-md:flex-col">
-          <nav className="flex shrink-0 overflow-auto border-white/10 bg-[#1b1b1b] p-[9px] max-md:gap-1 max-md:border-b md:w-[210px] md:flex-col md:border-r">
+          <nav className="no-scrollbar flex shrink-0 overflow-auto border-white/10 bg-[#1b1b1b] p-[9px] max-md:gap-1 max-md:border-b md:w-[210px] md:flex-col md:border-r">
             {SETTINGS_TABS.map(([id, label, icon]) => (
               <button
                 key={id}
@@ -1440,6 +1488,28 @@ function SettingsSheet({
   );
 }
 
+/** A book's description; a long one is cut to a few lines with a More button. */
+function Blurb({ text }: { text: string }) {
+  const [full, setFull] = useState(false);
+  // ponytail: "long" is judged by length, not by measuring the rendered lines
+  const long = text.length > 420;
+  return (
+    <>
+      <p className={`mt-3 font-serif text-[15px] leading-[18px] ${long && !full ? "line-clamp-4" : ""}`}>
+        {text}
+      </p>
+      {long && (
+        <button
+          onClick={() => setFull(!full)}
+          className="mt-1 text-[13px] font-bold text-[#b4b4b4] hover:text-[#8a8a8a]"
+        >
+          {full ? "See Less" : "See More"}
+        </button>
+      )}
+    </>
+  );
+}
+
 function Detail({ ids, id }: DetailState) {
   const { s, setDetail, toggleWant, toggleFinished, setView, patch, play, read } =
     useContext(LibCtx);
@@ -1454,8 +1524,19 @@ function Detail({ ids, id }: DetailState) {
     (b) => b.id !== id && b.title === book.title && b.author === book.author,
   );
   const info = book.info;
+  const tracked = !!book.file && (book.kind === "audiobook" || canRead(book));
   const card = "rounded-2xl bg-[#3a393c] p-[17px]";
   const arrow = "absolute top-1/2 -translate-y-1/2 text-[#8c8c8c] hover:text-white";
+  const series = book.series
+    ? s.books.filter((b) => b.series === book.series && b.id !== id).toSorted(bySeriesIndex)
+    : [];
+  const section = (title: string, content: ReactNode) => (
+    <>
+      <hr className="my-7 border-white/10" />
+      <h3 className="mb-4 font-serif text-[17px] font-bold">{title}</h3>
+      {content}
+    </>
+  );
 
   return (
     <Sheet
@@ -1483,7 +1564,18 @@ function Detail({ ids, id }: DetailState) {
         )}
 
         <div className="h-full overflow-y-auto bg-[#2c2c2e] shadow-2xl md:rounded-[28px]">
-          <div className="relative bg-[#262527] px-5 pt-[68px] pb-[34px] md:px-[74px]">
+          <div className="relative isolate bg-[#262527] px-5 pt-[68px] pb-[34px] md:px-[74px]">
+            {/* The cover, blown up and blurred until only its colours are left. */}
+            <div aria-hidden className="absolute inset-0 -z-10 overflow-hidden">
+              <div
+                className="size-full scale-150 bg-cover bg-center opacity-45 blur-[70px]"
+                style={{
+                  backgroundImage: book.coverFile
+                    ? `url(/api/file?cover=${book.coverFile})`
+                    : `linear-gradient(${book.cover[0]}, ${book.cover[1]})`,
+                }}
+              />
+            </div>
             <button
               aria-label="Close"
               onClick={() => setDetail(null)}
@@ -1499,6 +1591,7 @@ function Detail({ ids, id }: DetailState) {
               >
                 <Icon name={book.want ? "check" : "plus"} className="size-5" />
               </button>
+              <CloudButton book={book} />
               <BookMenu book={book} />
             </div>
 
@@ -1518,11 +1611,17 @@ function Detail({ ids, id }: DetailState) {
                 <h2 className="font-serif text-[28px] leading-tight font-bold">
                   {book.title}
                 </h2>
-                <p className="mt-[6px] text-[14px]">{book.author}</p>
+                <p className="mt-[6px] text-[14px]">
+                  {book.author}
+                  {book.narrator && (
+                    <span className="text-[#a8a8a8]"> • Narrated by {book.narrator}</span>
+                  )}
+                </p>
                 <p className="mt-2 text-[13px] text-[#a8a8a8]">
                   {[
                     info?.rating &&
                       `★ ${info.rating.toFixed(1)} (${compact(info.ratings ?? 0)})`,
+                    info?.genre,
                     info?.year && `First published ${info.year}`,
                   ]
                     .filter(Boolean)
@@ -1534,7 +1633,8 @@ function Detail({ ids, id }: DetailState) {
                     <p className="text-[13px] text-[#c8c8c8]">
                       {[
                         `Added ${new Date(book.added).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`,
-                        info?.pages && `${info.pages} Pages`,
+                        info?.pages && book.kind !== "audiobook" && `${info.pages} Pages`,
+                        book.duration && clock(book.duration),
                       ]
                         .filter(Boolean)
                         .join(" • ")}
@@ -1543,18 +1643,12 @@ function Detail({ ids, id }: DetailState) {
                   <div className="flex shrink-0 flex-col gap-2">
                     {book.file && (
                       <button
-                        onClick={() => {
-                          if (book.kind === "audiobook") return play(book.id);
-                          if (READABLE.test(book.file!)) return read(book.id);
-                          window.open(`/api/import?file=${book.file}`, "_blank", "noopener");
-                        }}
+                        onClick={() =>
+                          book.kind === "audiobook" ? play(book.id) : read(book.id)
+                        }
                         className={`${primaryClass} h-[30px] w-[150px]`}
                       >
-                        {book.kind === "audiobook"
-                          ? "Listen"
-                          : READABLE.test(book.file)
-                            ? "Read"
-                            : "Download"}
+                        {book.kind === "audiobook" ? "Listen" : "Read"}
                       </button>
                     )}
                     <button
@@ -1600,9 +1694,7 @@ function Detail({ ids, id }: DetailState) {
 
           <div className="px-5 py-8 md:px-[74px]">
             <h3 className="font-serif text-[17px] font-bold">Description</h3>
-            <p className="mt-3 font-serif text-[15px] leading-[18px]">
-              {book.blurb ?? "No description yet."}
-            </p>
+            <Blurb key={book.id} text={book.blurb ?? "No description yet."} />
             <hr className="my-7 border-white/10" />
             <h3 className="font-serif text-[17px] font-bold">Ratings</h3>
             <div className="mt-3 grid gap-4 md:grid-cols-2 md:gap-[26px]">
@@ -1622,6 +1714,8 @@ function Detail({ ids, id }: DetailState) {
               </div>
             </div>
             <hr className="my-7 border-white/10" />
+            <Reviews key={`reviews ${book.id}`} book={book} />
+            <hr className="my-7 border-white/10" />
             <h3 className="font-serif text-[17px] font-bold">Progress</h3>
             <div className={`${card} mt-3 flex items-center gap-4`}>
               <input
@@ -1630,7 +1724,7 @@ function Detail({ ids, id }: DetailState) {
                 min={0}
                 max={100}
                 value={Math.round((book.progress ?? 0) * 100)}
-                disabled={book.kind === "audiobook" && !!book.file}
+                disabled={tracked}
                 onChange={(e) =>
                   patch(book.id, {
                     progress: Number(e.target.value) / 100,
@@ -1644,22 +1738,561 @@ function Detail({ ids, id }: DetailState) {
               </span>
             </div>
             <p className="mt-2 text-[12px] text-[#8c8c8c]">
-              {book.kind === "audiobook" && book.file
-                ? "Updates as you listen."
-                : "Drag to record how far you are. Anything between 0 and 100% shows under Continue Reading on Home."}
+              {tracked
+                ? "Updates as you read or listen."
+                : "There’s no file for this book here, so drag to record how far you are. Anything between 0 and 100% shows on Home."}
             </p>
+            {series.length > 0 &&
+              section(
+                "Other Books in This Series",
+                <Scroller>
+                  {series.map((b) => (
+                    <div key={b.id} className="w-[120px] shrink-0 text-[13px] leading-[18px]">
+                      <CoverButton book={b} w={120} ids={series.map((x) => x.id)} />
+                      {b.seriesIndex !== undefined && (
+                        <p className="mt-2 text-[11px] tracking-[0.12em] text-[#9a9a9a] uppercase">
+                          Book {b.seriesIndex}
+                        </p>
+                      )}
+                      <p className="mt-1 truncate font-semibold">{b.title}</p>
+                      <p className="truncate text-[#9a9a9a]">{b.author}</p>
+                    </div>
+                  ))}
+                </Scroller>,
+              )}
+            {s.lookups && book.author !== UNKNOWN_AUTHOR && (
+              <FoundBooks
+                key={`a${book.author}`}
+                query={`author=${encodeURIComponent(book.author)}`}
+                as="carousel"
+                skip={book.title}
+                wrap={(row) => section(`More Books by ${book.author}`, row)}
+              />
+            )}
+            {s.lookups && info?.genre && (
+              <FoundBooks
+                key={`g${info.genre}`}
+                query={`subject=${encodeURIComponent(info.genre)}`}
+                as="carousel"
+                skip={book.title}
+                wrap={(row) => section(`Top Books in ${info.genre}`, row)}
+              />
+            )}
           </div>
         </div>
     </Sheet>
   );
 }
 
+type Review = { name: string; text: string; created: string; rating?: number; mine: boolean };
+
+/** What people on this server wrote about the book, and a box for your own review. Mount with `key={book.id}`. */
+function Reviews({ book }: { book: Book }) {
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [writing, setWriting] = useState(false);
+  const load = () =>
+    fetch(`/api/reviews?book=${book.id}`)
+      .then((res) => res.json())
+      .then((body) => setReviews(body.reviews ?? []))
+      .catch(() => {});
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const mine = reviews.find((r) => r.mine);
+  const save = async (text: string) => {
+    await fetch("/api/reviews", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ book: book.id, text }),
+    }).catch(() => {});
+    setWriting(false);
+    load();
+  };
+  return (
+    <>
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="font-serif text-[17px] font-bold">Reviews</h3>
+        {!writing && (
+          <button onClick={() => setWriting(true)} className={controlClass}>
+            {mine ? "Edit Your Review" : "Write a Review"}
+          </button>
+        )}
+      </div>
+      {writing && (
+        <form
+          className="mt-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save(String(new FormData(e.currentTarget).get("text")));
+          }}
+        >
+          <textarea
+            name="text"
+            aria-label="Your review"
+            placeholder="What did you think? Everyone on this server can read it."
+            defaultValue={mine?.text}
+            maxLength={4000}
+            rows={4}
+            required
+            autoFocus
+            className={`${fieldClass} !h-auto py-2`}
+          />
+          <div className="mt-2 flex gap-2">
+            <button className={`${primaryClass} h-[30px] px-5`}>Save</button>
+            <button type="button" onClick={() => setWriting(false)} className={controlClass}>
+              Cancel
+            </button>
+            {mine && (
+              <button type="button" onClick={() => save("")} className={`${controlClass} text-[#ff6b61]`}>
+                Delete
+              </button>
+            )}
+          </div>
+        </form>
+      )}
+      {reviews.length > 0 ? (
+        <div className="mt-3 grid gap-4 md:grid-cols-2 md:gap-[26px]">
+          {reviews.map((r) => (
+            <div key={r.name + r.created} className="rounded-2xl bg-[#3a393c] p-[17px]">
+              <p className="max-h-[152px] overflow-y-auto text-[14px] leading-[19px] whitespace-pre-line">
+                {r.text}
+              </p>
+              <p className="mt-3 text-[12px] text-[#a0a0a0]">
+                {r.rating ? `★ ${r.rating} • ` : ""}
+                {new Date(r.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                {" • "}
+                {r.mine ? "You" : r.name}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        !writing && (
+          <p className="mt-3 text-[13px] text-[#8c8c8c]">
+            Nobody on this server has reviewed this yet.
+          </p>
+        )
+      )}
+    </>
+  );
+}
+
+const GENRES = ["Fantasy", "Science Fiction", "Mystery", "Romance", "Thriller", "History", "Biography"];
+const lower = (text: string) => text.toLowerCase();
+
+/** Finds a catalogue book in the library, and puts it on (or takes it off) Want to Read. */
+function useCatalogue() {
+  const { s, addBook, toggleWant, toast } = useContext(LibCtx);
+  const mineOf = (f: Found) =>
+    s.books.find(
+      (b) =>
+        b.olKey === f.key ||
+        (lower(b.title) === lower(f.title) && lower(b.author) === lower(f.author)),
+    );
+  const toggle = async (f: Found) => {
+    const mine = mineOf(f);
+    if (mine) return toggleWant(mine);
+    const res = await fetch("/api/discover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: f.key }),
+    }).catch(() => null);
+    if (!res?.ok) return toast("Couldn’t Add", "The catalogue can’t be reached right now.");
+    addBook((await res.json()).book);
+    toast("Added", `“${f.title}” was added to your Want to Read list.`);
+  };
+  return { mineOf, toggle };
+}
+
+/** A catalogue book's cover, `w` wide. Pulses grey until the image has arrived. */
+function FoundCover({ found, w }: { found: Found; w: number }) {
+  const [loaded, setLoaded] = useState(false);
+  const size = { width: w, height: w * 1.5 };
+  return found.cover ? (
+    <span
+      style={size}
+      className={`block shrink-0 overflow-hidden rounded-[3px] bg-white/10 shadow-lg ${loaded ? "" : "animate-pulse"}`}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={found.cover}
+        alt=""
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        className={`size-full object-cover transition-opacity ${loaded ? "" : "opacity-0"}`}
+      />
+    </span>
+  ) : (
+    <span
+      style={size}
+      className="flex shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-[#3a3a3c] p-1 text-center font-serif text-[11px]"
+    >
+      {found.title}
+    </span>
+  );
+}
+
+function WantButton({ found, className }: { found: Found; className: string }) {
+  const { mineOf, toggle } = useCatalogue();
+  const wanted = !!mineOf(found)?.want;
+  return (
+    <button
+      aria-pressed={wanted}
+      aria-label={`${wanted ? "Remove" : "Add"} ${found.title} ${wanted ? "from" : "to"} Want to Read`}
+      onClick={() => toggle(found)}
+      className={`${controlClass} flex items-center justify-center gap-1 !px-2 ${className}`}
+    >
+      <Icon name={wanted ? "check" : "plus"} className="size-4" strokeWidth={2} />
+      Want to Read
+    </button>
+  );
+}
+
+type About = { description?: string; genre?: string; facts?: string };
+const abouts = new Map<string, Promise<About>>();
+/**
+ * The details of a catalogue book. Asked for once, and already when the pointer reaches the
+ * book's cover, so its info page usually opens filled in.
+ */
+function loadAbout(key: string) {
+  let about = abouts.get(key);
+  if (!about) {
+    about = fetch(`/api/discover?about=${encodeURIComponent(key)}`)
+      .then((res) => res.json())
+      .catch(() => {
+        abouts.delete(key); // offline: ask again next time
+        return {};
+      });
+    abouts.set(key, about);
+  }
+  return about;
+}
+
+/** Cover, title, author and rating of a catalogue book; opens it. Sized like `Result`. */
+function FoundResult({ found, w, className = "" }: { found: Found; w: number; className?: string }) {
+  const { setDetail, preview } = useContext(LibCtx);
+  const mine = useCatalogue().mineOf(found);
+  return (
+    <button
+      onClick={() => (mine ? setDetail({ ids: [mine.id], id: mine.id }) : preview(found))}
+      onPointerEnter={() => loadAbout(found.key)}
+      className={`flex min-w-0 grow items-center gap-[18px] p-2 text-left ${className}`}
+    >
+      <FoundCover found={found} w={w} />
+      <div className="min-w-0 text-[13px] leading-[19.500px]">
+        <p className="truncate font-semibold">{found.title}</p>
+        <p className="truncate">{found.author}</p>
+        <p className="text-[#9a9a9a]">
+          {found.key.startsWith("anilist:") ? "Manga" : "Book"}
+          {found.rating
+            ? ` • ★ ${found.rating.toFixed(1)} (${compact(found.ratings ?? 0)})`
+            : found.year
+              ? ` • ${found.year}`
+              : ""}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+/** Info page of a catalogue book that is not in the library yet. */
+function FoundSheet({ found, onClose }: { found: Found; onClose: () => void }) {
+  const { s } = useContext(LibCtx);
+  const [loaded, setLoaded] = useState<{ key: string; about: About } | null>(null);
+  useEffect(() => {
+    let stale = false;
+    loadAbout(found.key).then((about) => stale || setLoaded({ key: found.key, about }));
+    return () => {
+      stale = true;
+    };
+  }, [found.key]);
+  const about = loaded?.key === found.key ? loaded.about : null; // null while loading
+  const isManga = found.key.startsWith("anilist:");
+  const bar = "animate-pulse rounded bg-white/10";
+  const row = (title: string, query: string) => (
+    <FoundBooks
+      key={query}
+      query={query}
+      as="carousel"
+      skip={found.title}
+      wrap={(books) => (
+        <>
+          <hr className="my-7 border-white/10" />
+          <h3 className="mb-4 font-serif text-[17px] font-bold">{title}</h3>
+          {books}
+        </>
+      )}
+    />
+  );
+  return (
+    <Sheet
+      label={found.title}
+      onClose={onClose}
+      className="h-full w-[922px] max-w-full md:h-[calc(100%-70px)] md:max-w-[calc(100%-110px)]"
+    >
+      <div className="h-full overflow-y-auto bg-[#2c2c2e] shadow-2xl md:rounded-[28px]">
+        <div className="relative isolate bg-[#262527] px-5 pt-[68px] pb-[34px] md:px-[74px]">
+          <div aria-hidden className="absolute inset-0 -z-10 overflow-hidden">
+            <div
+              className="size-full scale-150 bg-cover bg-center opacity-45 blur-[70px]"
+              style={{ backgroundImage: found.cover ? `url(${JSON.stringify(found.cover)})` : undefined }}
+            />
+          </div>
+          <button aria-label="Close" onClick={onClose} className={closeClass}>
+            <Icon name="x" className="size-5" />
+          </button>
+          <div className="flex flex-col gap-6 md:flex-row md:gap-[34px]">
+            <FoundCover found={found} w={190} />
+            <div className="min-w-0 grow">
+              <h2 className="font-serif text-[28px] leading-tight font-bold">{found.title}</h2>
+              <p className="mt-[6px] text-[14px]">{found.author}</p>
+              <p className="mt-2 text-[13px] text-[#a8a8a8]">
+                {[
+                  found.rating && `★ ${found.rating.toFixed(1)} (${compact(found.ratings ?? 0)})`,
+                  about?.genre,
+                  found.year && `First published ${found.year}`,
+                ]
+                  .filter(Boolean)
+                  .join(" • ")}
+              </p>
+              <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl bg-[#3a393c] p-[17px]">
+                <div>
+                  <p className="text-[16px] font-bold">{isManga ? "Manga" : "Book"}</p>
+                  <p className="text-[13px] text-[#c8c8c8]">
+                    {about?.facts || "Not in your library"}
+                  </p>
+                </div>
+                <WantButton found={found} className="w-[150px]" />
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-8 md:px-[74px]">
+          <h3 className="font-serif text-[17px] font-bold">Description</h3>
+          {about ? (
+            <Blurb key={found.key} text={about.description ?? "No description yet."} />
+          ) : (
+            <div aria-hidden className="mt-3 space-y-2">
+              <div className={`${bar} h-3`} />
+              <div className={`${bar} h-3`} />
+              <div className={`${bar} h-3 w-2/3`} />
+            </div>
+          )}
+          {s.lookups &&
+            !isManga &&
+            found.author !== UNKNOWN_AUTHOR &&
+            row(`More Books by ${found.author}`, `author=${encodeURIComponent(found.author)}`)}
+          {s.lookups &&
+            about?.genre &&
+            (isManga
+              ? row(`Popular ${about.genre} Manga`, `mangaGenre=${encodeURIComponent(about.genre)}`)
+              : row(`Top Books in ${about.genre}`, `subject=${encodeURIComponent(about.genre)}`))}
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/** A row that scrolls sideways, with an arrow at each edge it can still scroll toward instead of a scrollbar. */
+function Scroller({ className = "", children }: { className?: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [can, setCan] = useState({ left: false, right: false });
+  const measure = () => {
+    const el = ref.current;
+    if (!el) return;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setCan((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  };
+  useEffect(() => {
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(ref.current!);
+    return () => watch.disconnect();
+  }, []);
+  const arrow = (dir: -1 | 1) => (
+    <button
+      aria-label={dir < 0 ? "Scroll left" : "Scroll right"}
+      onClick={() =>
+        ref.current!.scrollBy({ left: dir * ref.current!.clientWidth * 0.8, behavior: "smooth" })
+      }
+      // 90px: the middle of a 180px-tall cover. Shown while the pointer is over the row, or on keyboard focus.
+      className={`absolute top-[90px] z-10 flex h-[84px] w-[30px] -translate-y-1/2 items-center justify-center rounded-full bg-[#3a3a3c] text-white opacity-0 shadow-lg transition-opacity group-hover/row:opacity-100 hover:bg-[#4a4a4c] focus-visible:opacity-100 ${dir < 0 ? "-left-[15px]" : "-right-[15px]"}`}
+    >
+      <Icon name={dir < 0 ? "chevronLeft" : "chevronRight"} className="size-5" strokeWidth={2} />
+    </button>
+  );
+  return (
+    <div className={`group/row relative ${className}`}>
+      <div ref={ref} onScroll={measure} className="no-scrollbar flex gap-5 overflow-x-auto pb-3">
+        {children}
+      </div>
+      {can.left && arrow(-1)}
+      {can.right && arrow(1)}
+    </div>
+  );
+}
+
+/**
+ * Books from Open Library's catalogue (`query` is the /api/discover query string), shown as a
+ * carousel of covers, a two-column list, or a list of titles to search for.
+ * Mount with `key={query}` so a new query starts clean.
+ */
+function FoundBooks({
+  query,
+  as,
+  limit = 18,
+  skip = "",
+  onPick,
+  wrap,
+  className,
+}: {
+  query: string;
+  as: "carousel" | "list" | "terms";
+  limit?: number;
+  skip?: string; // title to leave out: the book this row is shown under
+  onPick?: (title: string) => void; // "terms": a title was chosen
+  /** Wraps the result in its heading; with it, nothing at all is rendered unless there are books. */
+  wrap?: (content: ReactNode) => ReactNode;
+  className?: string;
+}) {
+  const { setDetail, preview } = useContext(LibCtx);
+  const { mineOf } = useCatalogue();
+  const [found, setFound] = useState<Found[] | string | null>(null); // null while loading
+  useEffect(() => {
+    const stop = new AbortController();
+    // The search box remounts this on every key, so wait for a pause before asking.
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/discover?${query}`, { signal: stop.signal });
+        const body = await res.json();
+        setFound(res.ok ? body.books : body.error);
+      } catch {
+        if (!stop.signal.aborted) setFound("Open Library can’t be reached right now.");
+      }
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      stop.abort();
+    };
+  }, [query]);
+
+  const columns = `grid gap-x-[25px] md:grid-cols-2 ${className ?? ""}`;
+  if (found === null) {
+    if (wrap) return null;
+    // Grey shapes where the books will be, so the page doesn't jump when they arrive.
+    const bar = "animate-pulse rounded bg-white/10";
+    return as === "carousel" ? (
+      <div aria-hidden className={`flex gap-5 overflow-hidden pb-3 ${className ?? ""}`}>
+        {Array.from({ length: 10 }, (_, i) => (
+          <div key={i} className="w-[120px] shrink-0">
+            <div className={`${bar} h-[180px]`} />
+            <div className={`${bar} mt-3 h-3`} />
+            <div className={`${bar} mt-2 h-3 w-2/3`} />
+            <div className={`${bar} mt-3 h-[30px]`} />
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div aria-hidden className={columns}>
+        {Array.from({ length: as === "list" ? Math.min(limit, 8) : 10 }, (_, i) =>
+          as === "list" ? (
+            <div key={i} className="flex items-center gap-[18px] border-b border-white/10 px-2 py-[10px]">
+              <div className={`${bar} h-[84px] w-[56px] shrink-0`} />
+              <div className="grow">
+                <div className={`${bar} h-3 w-1/2`} />
+                <div className={`${bar} mt-2 h-3 w-1/3`} />
+              </div>
+            </div>
+          ) : (
+            <div key={i} className="border-b border-white/10 px-2 py-[15px]">
+              <div className={`${bar} h-[14px] w-1/2`} />
+            </div>
+          ),
+        )}
+      </div>
+    );
+  }
+  const books =
+    typeof found === "string"
+      ? []
+      : found.filter((f) => lower(f.title) !== lower(skip)).slice(0, limit);
+  if (!books.length)
+    return wrap ? null : (
+      <p className="text-[14px] text-[#8e8e8e]">
+        {typeof found === "string" ? found : "No books found."}
+      </p>
+    );
+
+  /** The cover, `w` wide; it opens the book when it is already in the library. */
+  const art = (f: Found, w: number) => {
+    const mine = mineOf(f);
+    return (
+      <button
+        aria-label={`Open ${f.title}`}
+        onClick={() => (mine ? setDetail({ ids: [mine.id], id: mine.id }) : preview(f))}
+        onPointerEnter={() => loadAbout(f.key)}
+        className="block shrink-0"
+      >
+        <FoundCover found={f} w={w} />
+      </button>
+    );
+  };
+  const want = (f: Found, extra: string) => <WantButton found={f} className={extra} />;
+
+  const content =
+    as === "terms" ? (
+      <div className={columns}>
+        {books.map((f) => (
+          // The rule stays straight; only the hover highlight inside it is rounded.
+          <div key={f.key} className="border-b border-white/10 py-[2px]">
+            <button
+              onClick={() => onPick?.(f.title)}
+              className="flex w-full items-center gap-3 rounded-lg px-2 py-[10px] text-left text-[14px] hover:bg-white/5"
+            >
+              <Icon name="search" className="size-4 shrink-0 text-[#9a9a9a]" strokeWidth={2} />
+              <span className="truncate">{f.title}</span>
+            </button>
+          </div>
+        ))}
+      </div>
+    ) : as === "list" ? (
+      <div className={columns}>
+        {books.map((f) => (
+          <div key={f.key} className="border-b border-white/10 py-[2px]">
+            <div className="flex items-center gap-2 rounded-lg pr-2 hover:bg-white/5">
+              <FoundResult found={f} w={56} />
+              {want(f, "")}
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <Scroller className={className}>
+        {books.map((f) => (
+          <div key={f.key} className="w-[120px] shrink-0 text-[13px] leading-[18px]">
+            {art(f, 120)}
+            <p className="mt-2 truncate font-semibold" title={f.title}>
+              {f.title}
+            </p>
+            <p className="truncate text-[#9a9a9a]">{f.author}</p>
+            {want(f, "mt-2 w-full")}
+          </div>
+        ))}
+      </Scroller>
+    );
+  return wrap ? wrap(content) : content;
+}
+
 function Search() {
   const { s, set } = useContext(LibCtx);
   const [q, setQ] = useState("");
+  const [genre, setGenre] = useState(GENRES[0]);
+  const [origin, setOrigin] = useState("manga");
   const term = q.trim();
   const results = s.books.filter((b) =>
-    `${b.title} ${b.author} ${b.series ?? ""} ${(b.tags ?? []).join(" ")}`
+    `${b.title} ${b.author} ${b.series ?? ""} ${b.narrator ?? ""} ${(b.tags ?? []).join(" ")}`
       .toLowerCase()
       .includes(term.toLowerCase()),
   );
@@ -1675,7 +2308,21 @@ function Search() {
       </div>
     );
   };
-  const recent = s.books.toSorted(newestFirst).slice(0, 3);
+  // Library books are kept by id, catalogue books as they were shown.
+  const viewed = s.viewed
+    .flatMap((v) => (typeof v === "string" ? (s.books.find((b) => b.id === v) ?? []) : v))
+    .slice(0, 6);
+  const viewedIds = viewed.flatMap((v) => ("id" in v ? v.id : []));
+  const found = (query: string, as: "carousel" | "list" | "terms", limit?: number) => (
+    <FoundBooks
+      key={query}
+      query={query}
+      as={as}
+      limit={limit}
+      onPick={setQ}
+      className="md:mr-[33px]"
+    />
+  );
 
   return (
     <>
@@ -1694,8 +2341,8 @@ function Search() {
           <input
             autoFocus
             type="search"
-            aria-label="Search library"
-            placeholder="Search Library"
+            aria-label="Search"
+            placeholder={s.lookups ? "Search Books" : "Search Library"}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="w-full bg-transparent text-[13.500px] text-[#f2f2f2] outline-none placeholder:text-[#9a9a9a] [&::-webkit-search-cancel-button]:hidden"
@@ -1714,11 +2361,23 @@ function Search() {
       </form>
 
       {term ? (
-        results.length ? (
-          <Section title="Results">{rows(results)}</Section>
-        ) : (
-          <EmptyState title="No Results" text={`Nothing in your library matches “${term}”.`} />
-        )
+        <>
+          {results.length ? (
+            <Section title="In Your Library">{rows(results)}</Section>
+          ) : (
+            !s.lookups && (
+              <EmptyState title="No Results" text={`Nothing in your library matches “${term}”.`} />
+            )
+          )}
+          {s.lookups && (
+            <>
+              <Section title="More Books">{found(`q=${encodeURIComponent(term)}`, "list", 12)}</Section>
+              <Section title="Manga & Manhwa">
+                {found(`manga=${encodeURIComponent(term)}`, "carousel")}
+              </Section>
+            </>
+          )}
+        </>
       ) : (
         <>
           {s.recents.length > 0 && (
@@ -1737,14 +2396,64 @@ function Search() {
               </div>
             </Section>
           )}
-          <Section title="Recently Added">
-            <div className="grid gap-x-6 gap-y-1 py-1 md:grid-cols-3">
-              {recent.map((b) => (
-                <Result key={b.id} book={b} w={72} ids={recent.map((r) => r.id)} />
-              ))}
-            </div>
+          {viewed.length > 0 && (
+            <Section title="Recently Viewed" onClear={() => set(() => ({ viewed: [] }))}>
+              <div className="grid gap-x-6 gap-y-1 py-1 md:grid-cols-3">
+                {viewed.map((v) =>
+                  "id" in v ? (
+                    <Result key={v.id} book={v} w={72} ids={viewedIds} />
+                  ) : (
+                    <FoundResult key={v.key} found={v} w={72} className="rounded-lg hover:bg-white/5" />
+                  ),
+                )}
+              </div>
+            </Section>
+          )}
+          {s.lookups && (
+            <>
+              <Section title="Discover">{found("list=new", "list", 8)}</Section>
+              <Section title="Trending">{found("list=trending", "terms", 10)}</Section>
+              <Section title="Browse by Genre">
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {GENRES.map((g) => (
+                    <button
+                      key={g}
+                      aria-pressed={genre === g}
+                      onClick={() => setGenre(g)}
+                      className={`${controlClass} aria-pressed:bg-[#737373]`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+                {found(`subject=${encodeURIComponent(genre)}`, "carousel")}
+              </Section>
+              <Section title="Manga & Manhwa">
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {["manga", "manhwa"].map((o) => (
+                    <button
+                      key={o}
+                      aria-pressed={origin === o}
+                      onClick={() => setOrigin(o)}
+                      className={`${controlClass} capitalize aria-pressed:bg-[#737373]`}
+                    >
+                      {o}
+                    </button>
+                  ))}
+                </div>
+                {found(`list=${origin}`, "carousel")}
+              </Section>
+            </>
+          )}
+          <Section title="In Your Library">
+            {s.books.length ? (
+              rows(s.books)
+            ) : (
+              <p className="text-[14px] text-[#8e8e8e]">
+                Nothing here yet. Import a book from Home to get started.
+              </p>
+            )}
           </Section>
-          <Section title="In Your Library">{rows(s.books)}</Section>
         </>
       )}
     </>
@@ -1793,6 +2502,7 @@ function EditSheet({ book, onClose }: { book: Book; onClose: () => void }) {
           const text = (name: string) => String(form.get(name) ?? "").trim();
           const title = text("title") || book.title;
           const author = text("author") || UNKNOWN_AUTHOR;
+          // ponytail: metadata is shared, so this edit shows for everyone on the server
           patch(book.id, {
             title,
             author,
@@ -1867,143 +2577,66 @@ function useReadingClock(active: boolean, onSlice?: () => void) {
   }, [active]);
 }
 
-/** Formats the in-app reader can show; anything else is offered as a download. */
-const READABLE = /\.(epub|pdf|txt)$/;
+const canRead = (b: Book) => !!b.file && READABLE.includes(extOf(b.file));
 
-/**
- * In-app reader: EPUB through epub.js, PDF and text in the browser's own viewer.
- * The time it is open and on screen counts as reading.
- */
-function Reader({ book, onClose }: { book: Book; onClose: () => void }) {
-  const { patch } = useContext(LibCtx);
-  const src = `/api/import?file=${book.file}`;
-  const isEpub = book.file!.endsWith(".epub");
-  const stage = useRef<HTMLDivElement>(null);
-  const rendition = useRef<Rendition | null>(null);
+/** The reader, wired to the library: saves position and counts the time it is open and on screen. */
+function ReaderHost({ book, onClose }: { book: Book; onClose: () => void }) {
+  const { s, set, patch } = useContext(LibCtx);
   const [visible, setVisible] = useState(true);
-  const [failed, setFailed] = useState(false);
-
   useEffect(() => {
+    patch(book.id, { opened: Date.now() });
     const update = () => setVisible(document.visibilityState === "visible");
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
-  }, []);
-  useReadingClock(visible);
-
-  useEffect(() => {
-    patch(book.id, { opened: Date.now() });
-    if (!isEpub) return;
-    let epub: EpubBook | undefined;
-    let cancelled = false;
-    const turn = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") rendition.current?.prev();
-      if (e.key === "ArrowRight") rendition.current?.next();
-    };
-    import("epubjs")
-      .then(({ default: ePub }) => {
-        if (cancelled) return;
-        // The URL has no .epub extension to sniff, so say what it is.
-        epub = ePub(src, { openAs: "epub" });
-        const r = epub.renderTo(stage.current!, { width: "100%", height: "100%" });
-        rendition.current = r;
-        r.themes.default({
-          body: { color: "#e6e6e6 !important", background: "#1e1e1e !important" },
-          a: { color: "#4a9ee0 !important" },
-        });
-        r.on("keyup", turn); // key presses while focus is inside the book
-        r.on("relocated", (at: Location) => {
-          // Chapter position plus the page within it: close enough without indexing the whole book.
-          const { index, cfi, displayed } = at.start;
-          const chapters = epub!.spine.last().index + 1;
-          patch(book.id, {
-            cfi,
-            progress: Math.min(1, (index + displayed.page / displayed.total) / chapters),
-          });
-        });
-        return r.display(book.cfi);
-      })
-      .catch(() => setFailed(true));
-    window.addEventListener("keydown", turn);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("keydown", turn);
-      rendition.current = null;
-      epub?.destroy();
-    };
-    // Opens once per book; later progress updates must not restart the renderer.
+    // Marks the book as opened once per book.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book.id]);
-
-  const button = "rounded-lg p-1 hover:bg-white/10";
+  useReadingClock(visible);
   return (
-    <Sheet
-      label={`Reading ${book.title}`}
+    <Reader
+      book={book}
+      prefs={s.reader}
+      onPrefs={(p) => set((prev) => ({ reader: { ...prev.reader, ...p } }))}
+      onPatch={(p) => patch(book.id, p)}
       onClose={onClose}
-      className="h-full w-[1100px] max-w-full md:h-[calc(100%-32px)] md:max-w-[calc(100%-32px)]"
-    >
-      <div className="flex h-full flex-col overflow-hidden border-white/10 bg-[#1e1e1e] shadow-2xl md:rounded-[18px] md:border">
-        <header className="flex items-center gap-2 border-b border-white/10 py-2 pr-3 pl-5">
-          <h2 className="min-w-0 grow truncate text-[14px] font-bold">{book.title}</h2>
-          {isEpub && (
-            <>
-              <span className="mr-2 text-[12px] text-[#a0a0a0]">
-                {Math.round((book.progress ?? 0) * 100)}%
-              </span>
-              <button
-                aria-label="Previous page"
-                onClick={() => rendition.current?.prev()}
-                className={button}
-              >
-                <Icon name="chevronLeft" className="size-5" />
-              </button>
-              <button
-                aria-label="Next page"
-                onClick={() => rendition.current?.next()}
-                className={button}
-              >
-                <Icon name="chevronRight" className="size-5" />
-              </button>
-            </>
-          )}
-          <button aria-label="Close" onClick={onClose} className={button}>
-            <Icon name="x" className="size-5" />
-          </button>
-        </header>
-        {failed ? (
-          <EmptyState
-            title="Can’t Open This Book"
-            text="The file couldn’t be read. It may be damaged or protected."
-          />
-        ) : isEpub ? (
-          <div ref={stage} className="min-h-0 grow px-2 md:px-10" />
-        ) : (
-          <iframe title={book.title} src={src} className="min-h-0 grow bg-white" />
-        )}
-      </div>
-    </Sheet>
+    />
   );
 }
 
-/** Audiobook bar pinned to the bottom of the window while a book plays. */
+/** Audiobook bar pinned to the bottom of the window. Plays the book's files back to back as one timeline. */
 function Player({ book, onClose }: { book: Book; onClose: () => void }) {
   const { patch } = useContext(LibCtx);
   const audio = useRef<HTMLAudioElement>(null);
+  const parts = book.files?.length ? book.files : [{ file: book.file!, duration: 0, name: "" }];
+  const starts = parts.map((_, i) => parts.slice(0, i).reduce((sum, p) => sum + p.duration, 0));
+  /** The file that holds a position on the whole-book timeline, and the offset inside it. */
+  const locate = (at: number) => {
+    const index = Math.max(0, starts.findLastIndex((start) => start <= at));
+    return { index, offset: at - starts[index] };
+  };
+  const [index, setIndex] = useState(() => locate(book.position ?? 0).index);
+  const pending = useRef(locate(book.position ?? 0).offset); // where to start once a file has loaded
   const [paused, setPaused] = useState(true);
-  const [time, setTime] = useState(book.position ?? 0);
-  const [duration, setDuration] = useState(0);
+  const [time, setTime] = useState(book.position ?? 0); // seconds into the whole book
+  const [measured, setMeasured] = useState(0);
   const [rate, setRate] = useState(1);
   const [sleep, setSleep] = useState(0); // minutes; 0 = off
+  const duration = book.duration || measured;
+  const chapters = book.chapters ?? [];
+  const chapterIndex = chapters.findLastIndex((c) => c.start <= time + 0.5);
+  const chapter = chapters[chapterIndex];
+  // The bar shows the chapter being played; a book without chapters is one long chapter.
+  const from = chapter?.start ?? 0;
+  const to = chapters[chapterIndex + 1]?.start ?? duration;
 
   // While playing, the listening time counts as reading and the position is saved with it.
-  useReadingClock(!paused, () => {
-    const a = audio.current;
-    if (a)
-      patch(book.id, {
-        position: a.currentTime,
-        progress: a.duration ? a.currentTime / a.duration : 0,
-        opened: Date.now(),
-      });
-  });
+  useReadingClock(!paused, () =>
+    patch(book.id, {
+      position: time,
+      progress: duration ? Math.min(1, time / duration) : 0,
+      opened: Date.now(),
+    }),
+  );
 
   useEffect(() => {
     if (!sleep) return;
@@ -2016,108 +2649,204 @@ function Player({ book, onClose }: { book: Book; onClose: () => void }) {
   }, [sleep]);
 
   const seek = (to: number) => {
-    const a = audio.current!;
-    a.currentTime = Math.max(0, Math.min(to, a.duration || 0));
+    const target = locate(Math.max(0, Math.min(to, duration || to)));
+    setTime(starts[target.index] + target.offset);
+    if (target.index === index) audio.current!.currentTime = target.offset;
+    else {
+      pending.current = target.offset;
+      setIndex(target.index);
+    }
   };
-  const skipClass =
-    "h-[30px] rounded-lg px-2 text-[12px] font-bold text-[#c8c8c8] hover:bg-white/10";
-  const timeClass = "w-[52px] text-[12px] text-[#a0a0a0] tabular-nums";
+  const [volume, setVolume] = useState(1);
+  const left = (seconds: number) => {
+    const m = Math.max(0, Math.round(seconds / 60));
+    return m >= 60 ? `${Math.floor(m / 60)} hr, ${m % 60} min left` : `${m} min left`;
+  };
+  const round = "flex size-9 shrink-0 items-center justify-center rounded-full hover:bg-white/10";
+  const skip = (by: -15 | 15) => (
+    <button
+      aria-label={by < 0 ? "Back 15 seconds" : "Forward 15 seconds"}
+      onClick={() => seek(time + by)}
+      className={`${round} relative`}
+    >
+      <Icon name="skip" className={`size-7 ${by > 0 ? "-scale-x-100" : ""}`} strokeWidth={1.6} />
+      <span className="absolute pt-[3px] text-[8px] font-bold">15</span>
+    </button>
+  );
 
   return (
-    <div className="fixed right-3 bottom-3 left-3 z-30 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-white/10 bg-[#2a2a2a] p-3 shadow-2xl max-md:bottom-[76px] md:left-[233px]">
-      <audio
-        ref={audio}
-        src={`/api/import?file=${book.file}`}
-        autoPlay
-        onPlay={() => setPaused(false)}
-        onPause={() => setPaused(true)}
-        onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => {
-          const a = e.currentTarget;
-          setDuration(a.duration);
-          // resume where it stopped, unless that was the very end
-          if ((book.position ?? 0) < a.duration - 5) a.currentTime = book.position ?? 0;
-        }}
-        onEnded={() => patch(book.id, { progress: 1, position: 0 })}
-      />
-      <Cover book={book} w={44} />
-      <div className="w-[150px] min-w-0">
-        <p className="truncate text-[13px] font-bold">{book.title}</p>
-        <p className="truncate text-[12px] text-[#a0a0a0]">{book.author}</p>
-      </div>
-      <div className="flex items-center gap-1">
-        <button aria-label="Back 15 seconds" onClick={() => seek(time - 15)} className={skipClass}>
-          −15
-        </button>
-        <button
-          aria-label={paused ? "Play" : "Pause"}
-          onClick={() => (paused ? audio.current!.play() : audio.current!.pause())}
-          className={`${primaryClass} flex size-10 items-center justify-center`}
-        >
-          <Icon
-            name={paused ? "play" : "pause"}
-            className="size-5"
-            fill={paused ? "currentColor" : "none"}
-            strokeWidth={paused ? 1.7 : 3}
+    <div className="pointer-events-none fixed right-3 bottom-3 left-3 z-30 flex justify-center max-md:bottom-[76px] md:left-[233px]">
+      <div className="pointer-events-auto flex h-[70px] w-full max-w-[860px] items-center gap-4 rounded-full border border-white/15 bg-[#1e1e1e]/90 px-5 shadow-2xl backdrop-blur-xl max-md:gap-2 max-md:px-3">
+        <audio
+          ref={audio}
+          src={`/api/file?file=${parts[index].file}`}
+          autoPlay
+          onPlay={() => setPaused(false)}
+          onPause={() => setPaused(true)}
+          onTimeUpdate={(e) => setTime(starts[index] + e.currentTarget.currentTime)}
+          onLoadedMetadata={(e) => {
+            const a = e.currentTarget;
+            if (parts.length === 1) setMeasured(a.duration);
+            // resume where it stopped, unless that was the very end
+            if (pending.current < a.duration - 5) a.currentTime = pending.current;
+            pending.current = 0;
+            a.playbackRate = rate;
+            a.volume = volume;
+          }}
+          onEnded={() =>
+            index < parts.length - 1
+              ? setIndex(index + 1) // the next file starts by itself (autoPlay)
+              : patch(book.id, { progress: 1, position: 0 })
+          }
+        />
+        <div className="flex shrink-0 items-center gap-1">
+          {skip(-15)}
+          <button
+            aria-label={paused ? "Play" : "Pause"}
+            onClick={() => (paused ? audio.current!.play() : audio.current!.pause())}
+            className="flex size-10 items-center justify-center rounded-full hover:bg-white/10"
+          >
+            <Icon
+              name={paused ? "play" : "pause"}
+              className="size-7"
+              fill={paused ? "currentColor" : "none"}
+              strokeWidth={paused ? 1.7 : 4}
+            />
+          </button>
+          {skip(15)}
+        </div>
+        <div className="relative flex min-w-0 grow items-center gap-3 self-stretch">
+          <Cover book={book} w={44} />
+          <div className="min-w-0">
+            <p className="truncate text-[15px]">
+              {book.title} · {book.author}
+            </p>
+            <p className="truncate text-[13px] text-[#9a9a9a]">
+              {left(to - time)}
+              {chapter && ` · ${chapter.title}`}
+            </p>
+          </div>
+          {/* The thin line is the current chapter; the invisible slider over it does the seeking. */}
+          <div className="absolute inset-x-0 bottom-[5px] h-[3px] overflow-hidden rounded-full bg-white/15">
+            <div
+              className="h-full rounded-full bg-white/60"
+              style={{ width: `${to > from ? ((time - from) / (to - from)) * 100 : 0}%` }}
+            />
+          </div>
+          <input
+            type="range"
+            aria-label="Position"
+            min={from}
+            max={to || 1}
+            value={time}
+            onChange={(e) => seek(Number(e.target.value))}
+            className="absolute inset-x-0 bottom-0 h-[13px] w-full cursor-pointer opacity-0"
           />
-        </button>
-        <button
-          aria-label="Forward 30 seconds"
-          onClick={() => seek(time + 30)}
-          className={skipClass}
-        >
-          +30
-        </button>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {chapters.length > 1 && (
+            <Popover
+              label="Tracks"
+              button={<Icon name="list" className="size-6" />}
+              buttonClass={round}
+              panelClass="bottom-full right-0 mb-5 max-h-[60vh] w-[340px] max-w-[calc(100vw-24px)] overflow-y-auto"
+            >
+              <div className="px-3 pt-2 pb-3">
+                <p className="text-[17px] font-bold">Tracks</p>
+                <p className="text-[12px] text-[#9a9a9a]">{left(duration - time)} in audiobook</p>
+              </div>
+              {chapters.map((c, i) => (
+                // The rule stays straight; only the highlight inside it is rounded.
+                <div key={c.start} className="border-t border-white/10 py-[2px]">
+                  <button
+                    role="menuitem"
+                    aria-current={c === chapter}
+                    onClick={() => seek(c.start)}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-[9px] text-left text-[14px] hover:bg-white/10 aria-[current=true]:bg-white/15 aria-[current=true]:font-bold"
+                  >
+                    <span className="grow truncate">{c.title}</span>
+                    {c === chapter && (
+                      <span aria-hidden className="eq text-[#c8c8c8]" data-paused={paused}>
+                        <span />
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    )}
+                    <span className="shrink-0 text-[12px] text-[#9a9a9a] tabular-nums">
+                      {/* time left in the chapter that is playing, the full length of the others */}
+                      {clock((chapters[i + 1]?.start ?? duration) - (c === chapter ? time : c.start))}
+                    </span>
+                  </button>
+                </div>
+              ))}
+            </Popover>
+          )}
+          <Popover
+            label="Playback speed"
+            button={`${rate}×`}
+            buttonClass={`${round} text-[13px] font-bold max-md:hidden`}
+            panelClass="bottom-full right-0 mb-5 w-[130px]"
+          >
+            {RATES.map((r) => (
+              <MenuItem
+                key={r}
+                label={`${r}×`}
+                checked={rate === r}
+                onClick={() => {
+                  audio.current!.playbackRate = r;
+                  setRate(r);
+                }}
+              />
+            ))}
+          </Popover>
+          <Popover
+            label="Sleep timer"
+            button={
+              <>
+                <Icon name="moon" className="size-5" />
+                {sleep > 0 && <span className="text-[11px]">{sleep}</span>}
+              </>
+            }
+            buttonClass={`${round} max-md:hidden`}
+            panelClass="bottom-full right-0 mb-5 w-[150px]"
+          >
+            {SLEEP_MINUTES.map((m) => (
+              <MenuItem
+                key={m}
+                label={m ? `${m} minutes` : "Off"}
+                checked={sleep === m}
+                onClick={() => setSleep(m)}
+              />
+            ))}
+          </Popover>
+          <Popover
+            label="Volume"
+            button={<Icon name="volume" className="size-6" />}
+            buttonClass={`${round} max-md:hidden`}
+            panelClass="bottom-full right-0 mb-5 w-[180px] !p-3"
+          >
+            <input
+              type="range"
+              aria-label="Volume"
+              onClick={(e) => e.stopPropagation()} // a click inside a flyout would otherwise close it
+              min={0}
+              max={1}
+              step={0.05}
+              value={volume}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                audio.current!.volume = next;
+                setVolume(next);
+              }}
+              className="block w-full accent-white"
+            />
+          </Popover>
+          <button aria-label="Close player" onClick={onClose} className={`${round} text-[#a0a0a0]`}>
+            <Icon name="x" className="size-5" />
+          </button>
+        </div>
       </div>
-      <span className={`${timeClass} text-right`}>{clock(time)}</span>
-      <input
-        type="range"
-        aria-label="Position"
-        min={0}
-        max={duration || 1}
-        value={time}
-        onChange={(e) => seek(Number(e.target.value))}
-        className="min-w-[120px] grow accent-[#3b9be0]"
-      />
-      <span className={timeClass}>{clock(duration)}</span>
-      <button
-        aria-label="Playback speed"
-        onClick={() => {
-          const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length];
-          audio.current!.playbackRate = next;
-          setRate(next);
-        }}
-        className={`${controlClass} w-[58px]`}
-      >
-        {rate}×
-      </button>
-      <Popover
-        label="Sleep timer"
-        button={
-          <>
-            <Icon name="moon" className="size-4" />
-            {sleep > 0 && `${sleep}m`}
-          </>
-        }
-        buttonClass={`${controlClass} flex items-center gap-1`}
-        panelClass="bottom-full right-0 mb-2 w-[150px]"
-      >
-        {SLEEP_MINUTES.map((m) => (
-          <MenuItem
-            key={m}
-            label={m ? `${m} minutes` : "Off"}
-            checked={sleep === m}
-            onClick={() => setSleep(m)}
-          />
-        ))}
-      </Popover>
-      <button
-        aria-label="Close player"
-        onClick={onClose}
-        className="text-[#a0a0a0] hover:text-white"
-      >
-        <Icon name="x" className="size-5" />
-      </button>
     </div>
   );
 }
@@ -2234,7 +2963,7 @@ function Stats() {
                     <div
                       key={dayKey(d.date)}
                       title={describe(d)}
-                      className={`grow rounded-t-[3px] ${d.seconds >= goal ? "bg-[#1c9be6]" : "bg-white/30"}`}
+                      className={`grow rounded-t ${d.seconds >= goal ? "bg-[#1c9be6]" : "bg-white/30"}`}
                       style={{ height: height(d.seconds) }}
                     />
                   ))}
@@ -2275,9 +3004,13 @@ function Stats() {
       <section className={`${card} relative`} onMouseLeave={() => setTip(null)}>
         <h2 className={heading}>Reading Activity</h2>
         <div className="mt-3 text-[10px] text-[#a0a0a0]">
-          <div className="ml-8 grid grid-cols-[repeat(53,minmax(0,1fr))] gap-[2px] md:gap-[3px]">
-            {weeks.map(([sunday]) => (
-              <span key={dayKey(sunday.date)} className="h-4 whitespace-nowrap">
+          {/* phones show the last 26 weeks so the squares stay large enough to tap */}
+          <div className="ml-8 grid grid-cols-[repeat(26,minmax(0,1fr))] gap-[2px] md:grid-cols-[repeat(53,minmax(0,1fr))] md:gap-[3px]">
+            {weeks.map(([sunday], week) => (
+              <span
+                key={dayKey(sunday.date)}
+                className={`h-4 whitespace-nowrap ${week < 27 ? "max-md:hidden" : ""}`}
+              >
                 {sunday.date.getDate() <= 7 &&
                   sunday.date.toLocaleDateString("en-US", { month: "short" })}
               </span>
@@ -2291,9 +3024,9 @@ function Stats() {
                 </span>
               ))}
             </div>
-            {/* 1fr columns, so the year always fits the card: no scrolling at any width */}
-            <div className="grid min-w-0 grow grid-flow-col grid-cols-[repeat(53,minmax(0,1fr))] grid-rows-7 gap-[2px] md:gap-[3px]">
-              {weeks.flat().map((d) => {
+            {/* 1fr columns, so the grid always fits the card: no scrolling at any width */}
+            <div className="grid min-w-0 grow grid-flow-col grid-cols-[repeat(26,minmax(0,1fr))] grid-rows-7 gap-[2px] md:grid-cols-[repeat(53,minmax(0,1fr))] md:gap-[3px]">
+              {weeks.flatMap((days, week) => days.map((d) => ({ ...d, week }))).map((d) => {
                 const show = (e: { currentTarget: HTMLElement }) => {
                   const cell = e.currentTarget.getBoundingClientRect();
                   const box = e.currentTarget.closest("section")!.getBoundingClientRect();
@@ -2312,7 +3045,7 @@ function Stats() {
                     key={dayKey(d.date)}
                     onMouseEnter={show}
                     onClick={show}
-                    className={`aspect-square rounded-[20%] hover:ring-1 hover:ring-white/60 ${d.date > now ? "invisible" : shade(d.seconds)}`}
+                    className={`aspect-square rounded-[20%] hover:ring-1 hover:ring-white/60 ${d.week < 27 ? "max-md:hidden" : ""} ${d.date > now ? "invisible" : shade(d.seconds)}`}
                   />
                 );
               })}
@@ -2379,7 +3112,7 @@ function Stats() {
             <div key={m} className="flex grow basis-0 flex-col justify-end gap-1">
               {n}
               <span
-                className={`rounded-[4px] ${n ? "bg-[#1c9be6]" : "bg-white/15"}`}
+                className={`rounded ${n ? "bg-[#1c9be6]" : "bg-white/15"}`}
                 style={{ height: n ? `${(n / Math.max(...months)) * 70}%` : 3 }}
               />
               {new Date(2000, m).toLocaleDateString("en-US", { month: "short" })}
@@ -2414,49 +3147,457 @@ const LIBRARY_NAV: NavItem[] = [
   { id: "books", label: "Books", icon: "book" },
   { id: "audiobooks", label: "Audiobooks", icon: "headphones" },
   { id: "pdfs", label: "PDFs", icon: "doc" },
+  { id: "comics", label: "Manga & Comics", icon: "panels" },
 ];
 
 // 32px + 2px gap keeps the 34px pitch without hover touching the selected row.
 const itemClass =
   "mb-[2px] flex h-[32px] w-full items-center gap-[10px] rounded-lg px-[10px] text-left text-[13.500px] font-medium";
 const headingClass = "mt-[15px] mb-[7px] px-[7px] text-[13.500px] font-bold";
-const NAME = USER ?? "Guest";
 const UNKNOWN_AUTHOR = "Unknown Author";
-const PALETTE: Book["cover"][] = [
-  ["#23254d", "#07070c"],
-  ["#2f9d5c", "#04201f"],
-  ["#f0a030", "#8a3a14"],
-  ["#7a2f3a", "#1c0a10"],
-  ["#2b5d8a", "#0a1a2a"],
-  ["#5a3d8a", "#150d24"],
-];
+
+type ImportItem = { name: string; status: "waiting" | "working" | "done" | "failed"; note?: string };
+
+/** Files in a drop, including everything inside dropped folders. */
+function droppedFiles(data: DataTransfer): Promise<File[]> {
+  const walk = async (entry: FileSystemEntry): Promise<File[]> => {
+    if (entry.isFile)
+      return [await new Promise<File>((ok, no) => (entry as FileSystemFileEntry).file(ok, no))];
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    const out: File[] = [];
+    // readEntries hands back a batch at a time, and an empty one when the folder is done.
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((ok, no) => reader.readEntries(ok, no));
+      if (!batch.length) return out;
+      for (const child of batch) out.push(...(await walk(child)));
+    }
+  };
+  // Both are read before the first await: a drop's data is gone once its event is over.
+  const files = [...data.files];
+  const entries = [...data.items].flatMap((item) => item.webkitGetAsEntry?.() ?? []);
+  if (!entries.length) return Promise.resolve(files);
+  return Promise.all(entries.map(walk)).then((found) => found.flat());
+}
+
+/** Bottom-right card showing how an import is going; expands to a per-file list. */
+function ImportPanel({
+  items,
+  ignored,
+  onClose,
+}: {
+  items: ImportItem[];
+  ignored: number;
+  onClose: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const done = items.filter((i) => i.status === "done").length;
+  const failed = items.filter((i) => i.status === "failed").length;
+  const finished = done + failed === items.length;
+  // Goes away by itself once everything is in; stays when something failed or the list is open.
+  useEffect(() => {
+    if (!finished || failed || open) return;
+    const timer = setTimeout(onClose, 4000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished, failed, open]);
+  const iconButton = "rounded-lg p-1 hover:bg-white/10";
+  return (
+    <div className="fixed right-5 bottom-5 z-50 w-[360px] max-w-[calc(100%-24px)] rounded-2xl border border-white/10 bg-[#2c2c2e] p-4 shadow-2xl max-md:right-3 max-md:bottom-[76px]">
+      <div className="flex items-center gap-1">
+        <p role="status" className="grow text-[14px] font-bold">
+          {finished
+            ? done
+              ? "Import Finished"
+              : "Import Failed"
+            : `Importing ${done + failed + 1} of ${items.length}`}
+        </p>
+        <button
+          aria-label={open ? "Hide files" : "Show files"}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className={iconButton}
+        >
+          <Icon name={open ? "chevronDown" : "chevronUp"} className="size-4" strokeWidth={2} />
+        </button>
+        {finished && (
+          <button aria-label="Dismiss" onClick={onClose} className={iconButton}>
+            <Icon name="x" className="size-4" strokeWidth={2} />
+          </button>
+        )}
+      </div>
+      <p className="mt-1 truncate text-[13px] text-[#a0a0a0]">
+        {finished
+          ? `${done} added${failed ? `, ${failed} failed` : ""}${ignored ? `, ${ignored} other file${ignored === 1 ? "" : "s"} ignored` : ""}.`
+          : items.find((i) => i.status === "working")?.name}
+      </p>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-white transition-[width]"
+          style={{ width: `${((done + failed) / items.length) * 100}%` }}
+        />
+      </div>
+      {open && (
+        <ul className="mt-3 max-h-[240px] overflow-y-auto text-[13px]">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-center gap-3 py-1">
+              <span className="min-w-0 grow truncate" title={item.name}>
+                {item.name}
+              </span>
+              <span
+                className={`shrink-0 ${item.status === "failed" ? "text-[#ff6b61]" : "text-[#a0a0a0]"}`}
+              >
+                {item.note ??
+                  { waiting: "Waiting", working: "Importing…", done: "Added", failed: "Failed" }[
+                    item.status
+                  ]}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Sign in to an existing account, or create one. */
+function SignIn({ onDone }: { onDone: () => void }) {
+  const [options, setOptions] = useState({ first: false, signups: true, bypass: false });
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
+  const [sent, setSent] = useState<string | null>(null); // email a reset code was requested for
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/auth")
+      .then((res) => res.json())
+      .then((body) => {
+        setOptions(body);
+        if (body.first) setMode("register"); // nobody to sign in as yet
+      })
+      .catch(() => {});
+  }, []);
+
+  const registering = mode === "register";
+  const switchTo = (m: typeof mode) => {
+    setMode(m);
+    setSent(null);
+    setError(null);
+  };
+  const send = async (body: Record<string, unknown>) => {
+    setBusy(true);
+    const failed = await authCall(body);
+    setBusy(false);
+    if (failed) setError(failed);
+    else onDone();
+  };
+  const field = (
+    name: string,
+    label: string,
+    props: InputHTMLAttributes<HTMLInputElement> = {},
+  ) => (
+    <label className="block">
+      <span className="mb-1 block text-[12px] font-bold text-[#a0a0a0]">{label}</span>
+      <input name={name} className={fieldClass} {...props} />
+    </label>
+  );
+  /** Password field; once it has text, an eye at its right end shows or hides what was typed. */
+  const secret = (name: string, label: string, fresh: boolean) => (
+    <label className="block">
+      <span className="mb-1 block text-[12px] font-bold text-[#a0a0a0]">{label}</span>
+      <span className="relative block">
+        <input
+          name={name}
+          type={show ? "text" : "password"}
+          placeholder=" " // lets CSS tell an empty field from a filled one
+          autoComplete={fresh ? "new-password" : "current-password"}
+          minLength={fresh ? 8 : undefined}
+          required
+          className={`${fieldClass} peer pr-10`}
+        />
+        <button
+          type="button"
+          aria-label={show ? "Hide password" : "Show password"}
+          onClick={() => setShow(!show)}
+          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-[#a0a0a0] peer-placeholder-shown:hidden hover:text-white"
+        >
+          <Icon name={show ? "eye" : "eyeOff"} className="size-5" />
+        </button>
+      </span>
+    </label>
+  );
+
+  return (
+    <main className="flex min-h-full items-center justify-center p-4">
+      <div className="w-[440px] max-w-full rounded-[28px] bg-[#2c2c2e] p-8 shadow-2xl">
+        <Icon name="book" className="size-9" />
+        <h1 className="mt-3 font-serif text-[28px] font-bold">
+          {registering ? "Create your account" : mode === "forgot" ? "Reset your password" : "Welcome back"}
+        </h1>
+        <p className="mt-1 text-[14px] text-[#a0a0a0]">
+          {options.first
+            ? "This library is new. The first account becomes its admin."
+            : registering
+              ? "Your shelves, progress and reading stats are kept under your account."
+              : mode === "forgot"
+                ? sent
+                  ? "Enter the code and choose a new password."
+                  : "Enter your account’s email to get a reset code."
+                : "Sign in to pick up where you left off."}
+        </p>
+
+        {options.signups && !options.first && mode !== "forgot" && (
+          <div className="mt-6 grid grid-cols-2 gap-1 rounded-lg bg-white/5 p-1">
+            {(["login", "register"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mode === m}
+                onClick={() => switchTo(m)}
+                className="h-[30px] rounded-lg text-[13px] font-bold hover:bg-white/5 aria-pressed:bg-[#737373]"
+              >
+                {m === "login" ? "Sign In" : "Create Account"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <form
+          key={mode + (sent ?? "")}
+          className="mt-6 flex flex-col gap-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(e.currentTarget));
+            if ("confirm" in data && data.password !== data.confirm)
+              return setError("The two passwords don’t match.");
+            if (mode !== "forgot")
+              return send({ ...data, action: mode, remember: data.remember === "on" });
+            if (sent) return send({ ...data, action: "reset", email: sent });
+            setBusy(true);
+            const failed = await authCall({ action: "forgot", email: data.email });
+            setBusy(false);
+            setError(failed);
+            if (!failed) setSent(String(data.email));
+          }}
+        >
+          {registering && (
+            <div className="grid grid-cols-2 gap-3">
+              {field("first", "First name", {
+                autoComplete: "given-name",
+                required: true,
+                maxLength: 40,
+                autoFocus: true,
+              })}
+              {field("last", "Last name (optional)", { autoComplete: "family-name", maxLength: 40 })}
+            </div>
+          )}
+          {sent ? (
+            <>
+              <p className="text-[13px] leading-[19px] text-[#a0a0a0]">
+                If {sent} has an account, it now has a reset code. Ask this server’s admin for
+                it: they see it under Settings → Account, and it is written to the server log.
+                The code works for 30 minutes.
+              </p>
+              {field("code", "Reset code", {
+                inputMode: "numeric",
+                autoComplete: "one-time-code",
+                required: true,
+                autoFocus: true,
+              })}
+            </>
+          ) : (
+            field("email", "Email", {
+              type: "email",
+              autoComplete: "email",
+              required: true,
+              autoFocus: !registering,
+            })
+          )}
+          {mode === "login" && secret("password", "Password", false)}
+          {(registering || sent) &&
+            secret("password", `${sent ? "New password" : "Password"} (at least 8 characters)`, true)}
+          {(registering || sent) && secret("confirm", "Confirm password", true)}
+          {mode !== "forgot" && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
+              <label
+                className="flex items-center gap-2"
+                title="Stay signed in on this device for 30 days"
+              >
+                <input type="checkbox" name="remember" defaultChecked />
+                Remember me
+              </label>
+              {mode === "login" && (
+                <button
+                  type="button"
+                  onClick={() => switchTo("forgot")}
+                  className="text-[#a0a0a0] hover:text-white hover:underline"
+                >
+                  Forgot password?
+                </button>
+              )}
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="text-[13px] text-[#ff6b61]">
+              {error}
+            </p>
+          )}
+          <button disabled={busy} className={`${primaryClass} h-[38px] w-full disabled:opacity-60`}>
+            {registering
+              ? "Create Account"
+              : mode === "login"
+                ? "Sign In"
+                : sent
+                  ? "Set New Password"
+                  : "Get Reset Code"}
+          </button>
+          {mode === "forgot" && (
+            <button
+              type="button"
+              onClick={() => switchTo("login")}
+              className="text-[13px] text-[#a0a0a0] hover:text-white hover:underline"
+            >
+              Back to sign in
+            </button>
+          )}
+        </form>
+
+        {!options.signups && (
+          <p className="mt-4 text-center text-[12px] text-[#8c8c8c]">
+            New accounts are turned off here. Ask the server’s admin to let you in.
+          </p>
+        )}
+        {options.bypass && (
+          <>
+            <div className="my-5 flex items-center gap-3 text-[12px] text-[#8c8c8c]">
+              <hr className="grow border-white/10" />
+              or
+              <hr className="grow border-white/10" />
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => send({ action: "bypass" })}
+              className={`${controlClass} !h-[38px] w-full`}
+            >
+              Continue without an account
+            </button>
+            <p className="mt-2 text-center text-[12px] text-[#8c8c8c]">
+              For testing: signs you in as a shared guest. Off in production unless AUTH_BYPASS=1.
+            </p>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}
 
 export default function Page() {
   const [s, setS] = useState(INITIAL);
-  const [loaded, setLoaded] = useState(false);
+  const [auth, setAuth] = useState<Account | "loading" | "signin" | "offline">("loading");
+  const loaded = typeof auth === "object";
+  const [saving, setSaving] = useState<"ok" | "failing">("ok");
+  const [savedAt, setSavedAt] = useState(0); // bumps whenever the server and this tab agree again
+  const synced = useRef(INITIAL); // the state the server is known to have
+  const latest = useRef(INITIAL);
+  const sending = useRef(false);
+  const merges = useRef<((state: Saved) => Saved)[]>([]); // server-side changes that arrived mid-save
   const [view, setView] = useState("home"); // nav id, or `c:<collection id>`
   const [renaming, setRenaming] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
+  const [previewing, setPreviewing] = useState<Found | null>(null);
+  const [picking, setPicking] = useState<"auto" | "asked" | null>(null); // profile picker
   const [hud, setHud] = useState<{ title: string; text: string } | null>(null);
   const requested = useRef(new Set<string>());
   const [navOpen, setNavOpen] = useState(false); // sidebar drawer on narrow windows
   const [importing, setImporting] = useState(false);
   const [dropping, setDropping] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; failed: number; total: number } | null>(null);
+  // The running import: every file queued so far, plus how many unsupported files were left out.
+  const [job, setJob] = useState<{ items: ImportItem[]; ignored: number } | null>(null);
+  const queue = useRef<File[]>([]);
+  const cursor = useRef(0); // index in job.items of the next queued file
+  const busy = useRef(false);
   const dragId = useRef<string | null>(null);
   const [playing, setPlaying] = useState<string | null>(null); // audiobook in the player
   const [editing, setEditing] = useState<string | null>(null); // book in Edit Details
   const [readingId, setReadingId] = useState<string | null>(null); // book open in the reader
   const [settingsTab, setSettingsTab] = useState<string | null>(null); // open settings modal
 
+  const load = async () => {
+    try {
+      const res = await fetch("/api/library");
+      if (res.status === 401) return setAuth("signin");
+      const body = await res.json();
+      const state: Saved = { ...INITIAL, ...body.prefs, books: body.books, log: body.log };
+      synced.current = latest.current = state;
+      setS(state);
+      setAuth(body.user);
+      setSavedAt(Date.now());
+    } catch {
+      setAuth("offline");
+    }
+  };
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) setS({ ...INITIAL, ...JSON.parse(raw) });
-    setLoaded(true);
+    load();
+    // Runs once; `load` only touches refs and state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Sends whatever changed since the last save. One request at a time; retries until it gets through. */
+  const flush = async (keepalive = false) => {
+    if (sending.current) return;
+    const snapshot = latest.current;
+    const batch = diff(synced.current, snapshot);
+    if (!batch) return;
+    sending.current = true;
+    merges.current = [];
+    try {
+      const res = await fetch("/api/library", {
+        method: "PATCH",
+        body: JSON.stringify(batch),
+        keepalive,
+      });
+      if (res.status === 401) return setAuth("signin");
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      // Anything the server told us during the request was merged into the old baseline; replay it.
+      synced.current = merges.current.reduce((state, fn) => fn(state), snapshot);
+      setSaving("ok");
+      setSavedAt(Date.now());
+    } catch {
+      setSaving("failing");
+      setTimeout(flush, 5000);
+    } finally {
+      sending.current = false;
+    }
+    if (latest.current !== snapshot) flush();
+  };
   useEffect(() => {
-    if (loaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    latest.current = s;
+    if (!loaded) return;
+    const timer = setTimeout(flush, 800);
+    return () => clearTimeout(timer);
+    // `flush` reads everything through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s, loaded]);
+  useEffect(() => {
+    // Closing the tab inside the 0.8s debounce would otherwise drop the last change.
+    const leave = () => flush(true);
+    window.addEventListener("pagehide", leave);
+    return () => window.removeEventListener("pagehide", leave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Applies a change that is already on the server (an import, a lookup result), so it is not sent back. */
+  const merge = (fn: (state: Saved) => Saved) => {
+    setS(fn);
+    synced.current = fn(synced.current);
+    merges.current.push(fn);
+    setSavedAt(Date.now());
+  };
+  const mergeBook = (id: string, fields: Partial<Book>) =>
+    merge((state) => ({
+      ...state,
+      books: state.books.map((b) => (b.id === id ? { ...b, ...fields } : b)),
+    }));
 
   useEffect(() => {
     if (!hud) return;
@@ -2476,41 +3617,63 @@ export default function Page() {
     setNavOpen(false);
   };
 
+  // A further file of an audiobook updates the book that is already there.
+  const addBook: Lib["addBook"] = (book) =>
+    merge((state) => ({
+      ...state,
+      books: state.books.some((b) => b.id === book.id)
+        ? state.books.map((b) => (b.id === book.id ? { ...b, ...book } : b))
+        : [...state.books, book],
+    }));
+
+  /** Uploads one file at a time; files added while it runs join the same queue. */
   const importFiles: Lib["importFiles"] = async (files) => {
-    let done = 0;
-    let failed = 0;
-    for (const f of files) {
-      setProgress({ done, failed, total: files.length });
-      const kind = kindOf(f.name);
+    // A folder also holds cover images, notes and the like; those are left out.
+    const accepted = files.filter((f) => kindOf(f.name));
+    if (!accepted.length)
+      return toast("Nothing to Import", `No supported files were found. ${FORMATS}`);
+    setJob((prev) => ({
+      ignored: (prev?.ignored ?? 0) + files.length - accepted.length,
+      items: [
+        ...(prev?.items ?? []),
+        ...accepted.map((f): ImportItem => ({ name: f.name, status: "waiting" })),
+      ],
+    }));
+    queue.current.push(...accepted);
+    if (busy.current) return;
+    busy.current = true;
+    for (let f; (f = queue.current.shift()); ) {
+      const at = cursor.current++;
+      const mark = (status: ImportItem["status"], note?: string) =>
+        setJob(
+          (prev) =>
+            prev && {
+              ...prev,
+              items: prev.items.map((item, i) => (i === at ? { ...item, status, note } : item)),
+            },
+        );
+      mark("working");
       try {
-        if (!kind) throw new Error("Unsupported file type");
         const res = await fetch(`/api/import?name=${encodeURIComponent(f.name)}`, {
           method: "PUT",
           body: f,
         });
-        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-        const { file } = await res.json();
-        const book: Book = {
-          id: file,
-          file,
-          kind,
-          title: f.name.replace(/\.[^.]+$/, "").replace(/_+/g, " ").trim(),
-          author: UNKNOWN_AUTHOR,
-          cover: PALETTE[f.name.length % PALETTE.length],
-          added: dayKey(new Date()),
-          isNew: true,
-        };
-        set((prev) => ({ books: [...prev.books, book] }));
-        done++;
-      } catch {
-        failed++;
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error ?? `Upload failed (${res.status})`);
+        const book: Book = body.book;
+        addBook(book);
+        if (book.kind === "pdf" && !book.coverFile) {
+          // A PDF's cover is its first page, drawn here because only the browser can render one.
+          const cover = await pdfCover(f).catch(() => null);
+          const saved = cover && (await fetch(`/api/file?book=${book.id}`, { method: "PUT", body: cover }));
+          if (saved?.ok) mergeBook(book.id, await saved.json());
+        }
+        mark("done", body.merged ? `Added to “${book.title}”` : undefined);
+      } catch (e) {
+        mark("failed", e instanceof TypeError ? "Can’t reach the server" : (e as Error).message);
       }
     }
-    setProgress(null);
-    toast(
-      done ? "Imported" : "Import Failed",
-      `${done} of ${files.length} file${files.length === 1 ? "" : "s"} added to your library.${failed ? ` ${failed} failed or had an unsupported type.` : ""}`,
-    );
+    busy.current = false;
   };
 
   // Files dropped anywhere on the window are imported; in-app drags (manual sort) carry no files.
@@ -2527,7 +3690,7 @@ export default function Page() {
       e.preventDefault();
       setDropping(false);
       setImporting(false);
-      importFiles([...e.dataTransfer!.files]);
+      droppedFiles(e.dataTransfer!).then(importFiles);
     };
     window.addEventListener("dragover", over);
     window.addEventListener("dragleave", leave);
@@ -2558,20 +3721,41 @@ export default function Page() {
       return { books: rest };
     });
 
-  // Fetch other readers' ratings once per book; the result is saved with the book.
+  // Ask the server to fill in what a book is missing (cover, description, ratings), once
+  // per book. Runs on saved state, so a title edit is on the server before it is looked up.
   useEffect(() => {
     if (!loaded || !s.lookups) return;
-    for (const b of s.books) {
-      // keyed on title/author too, so editing either triggers a fresh lookup
+    for (const b of synced.current.books) {
       const key = `${b.id}|${b.title}|${b.author}`;
-      if (b.kind === "pdf" || b.info !== undefined || requested.current.has(key)) continue;
+      // Records from an older version of the lookup are refreshed once.
+      const complete = b.info === null || b.info?.v === INFO_VERSION;
+      if (complete || requested.current.has(key)) continue;
       requested.current.add(key);
-      lookup(b).then(
-        (info) => patch(b.id, { info }),
-        () => {}, // offline or Open Library down: try again next visit
-      );
+      fetch("/api/lookup", { method: "POST", body: JSON.stringify({ id: b.id }) })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => body && mergeBook(b.id, body.patch))
+        .catch(() => {}); // offline: asked again on the next visit
     }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedAt, loaded, s.lookups]);
+
+  if (!loaded)
+    return auth === "loading" ? null : auth === "offline" ? (
+      <main className="flex h-full flex-col items-center justify-center">
+        <EmptyState title="Can’t Reach the Server" text="Check that the library server is running, then try again." />
+        <button onClick={load} className={`${controlClass} mt-5`}>
+          Try Again
+        </button>
+      </main>
+    ) : (
+      <SignIn
+        onDone={() => {
+          setPicking("auto");
+          load();
+        }}
+      />
+    );
+  const user = auth;
 
   const lib: Lib = {
     s,
@@ -2579,9 +3763,27 @@ export default function Page() {
     patch,
     toast,
     setView: go,
-    setDetail,
+    setDetail: (d) => {
+      setDetail(d);
+      if (d)
+        set((prev) => ({ viewed: [d.id, ...prev.viewed.filter((id) => id !== d.id)].slice(0, 12) }));
+    },
+    preview: (f) => {
+      setPreviewing(f);
+      set((prev) => ({
+        viewed: [f, ...prev.viewed.filter((v) => typeof v === "string" || v.key !== f.key)].slice(0, 12),
+      }));
+    },
+    pickProfile: () => setPicking("asked"),
+    user,
+    logout: async () => {
+      await flush();
+      await authCall({ action: "logout" });
+      location.reload();
+    },
     openImport: () => setImporting(true),
     importFiles,
+    addBook,
     sortable,
     move: (id, by) => {
       const to = books[books.findIndex((b) => b.id === id) + by];
@@ -2621,7 +3823,16 @@ export default function Page() {
             },
           },
     toggleWant: (b) => {
-      patch(b.id, { want: !b.want });
+      // A book with no file is only there because it was wanted (or finished), so un-wanting drops it.
+      if (b.want && !b.file && !b.finished)
+        set((prev) => ({
+          books: prev.books.filter((x) => x.id !== b.id),
+          collections: prev.collections.map((c) => ({
+            ...c,
+            bookIds: c.bookIds.filter((id) => id !== b.id),
+          })),
+        }));
+      else patch(b.id, { want: !b.want });
       toast(
         b.want ? "Removed" : "Added",
         `“${b.title}” was ${b.want ? "removed from" : "added to"} your Want to Read list.`,
@@ -2715,7 +3926,7 @@ export default function Page() {
           />
         )}
         <aside
-          className={`my-[9px] mt-[13px] ml-[9px] flex w-[212px] shrink-0 flex-col rounded-[18px] border border-white/10 bg-[#1b1b1b] max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:transition-transform ${navOpen ? "" : "max-md:-translate-x-[240px]"}`}
+          className={`my-[9px] mt-[13px] ml-[9px] flex w-[212px] shrink-0 flex-col rounded-2xl border border-white/10 bg-[#1b1b1b] max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:transition-transform md:relative md:z-[41] ${navOpen ? "" : "max-md:-translate-x-[240px]"}`}
         >
           <nav className="grow overflow-y-auto px-[9px] pt-[13px]">
             {TOP_NAV.map((n) => navButton(n.id, n.label, n.icon))}
@@ -2778,14 +3989,14 @@ export default function Page() {
                 button={
                   <>
                     <span className="flex size-[38px] items-center justify-center rounded-full bg-[#4a4a4a] text-[16px] font-bold">
-                      {NAME[0].toUpperCase()}
+                      {user.name[0].toUpperCase()}
                     </span>
-                    <span className="truncate text-[13.500px] font-bold">{NAME}</span>
+                    <span className="truncate text-[13.500px] font-bold">{user.name}</span>
                   </>
                 }
                 panelClass="bottom-full left-0 mb-1 w-full"
               >
-                <p className="truncate px-[6px] py-1 text-[12px] text-[#9a9a9a]">{NAME}</p>
+                <p className="truncate px-[6px] py-1 text-[12px] text-[#9a9a9a]">{user.name}</p>
                 <MenuItem
                   icon="settings"
                   label="Settings"
@@ -2810,6 +4021,9 @@ export default function Page() {
                     setSettingsTab("help");
                   }}
                 />
+                {MENU_RULE}
+                <MenuItem icon="user" label="Switch Profile" onClick={lib.pickProfile} />
+                <MenuItem icon="logout" label="Log Out" onClick={lib.logout} />
               </Popover>
             </div>
         </aside>
@@ -2842,7 +4056,7 @@ export default function Page() {
               ) : layout === "Grid" ? (
                 <Grid
                   books={books}
-                  group={["all", "books", "audiobooks", "pdfs"].includes(view)}
+                  group={s.stack && ["all", "books", "audiobooks", "pdfs", "comics"].includes(view)}
                 />
               ) : view === "finished" ? (
                 <Timeline books={books} />
@@ -2897,6 +4111,13 @@ export default function Page() {
                       onClick={() => set(() => ({ sort }))}
                     />
                   ))}
+                  {MENU_RULE}
+                  <MenuItem
+                    label="Stack Series"
+                    icon="shelf"
+                    checked={s.stack}
+                    onClick={() => set((prev) => ({ stack: !prev.stack }))}
+                  />
                   {collection && (
                     <>
                       {MENU_RULE}
@@ -2916,6 +4137,7 @@ export default function Page() {
                   ...count("book", "book"),
                   ...count("audiobook", "audiobook"),
                   ...count("pdf", "PDF"),
+                  ...count("comic", "comic"),
                 ].join(", ")}
               </footer>
             </>
@@ -2948,9 +4170,25 @@ export default function Page() {
           />
         )}
         {detail && <Detail {...detail} />}
+        {previewing && <FoundSheet found={previewing} onClose={() => setPreviewing(null)} />}
+        {picking && (
+          <ProfilePicker
+            auto={picking === "auto"}
+            onClose={() => setPicking(null)}
+            onManage={() => {
+              setPicking(null);
+              setSettingsTab("profile");
+            }}
+            onPick={async (id) => {
+              await flush();
+              await authCall({ action: "switchProfile", id });
+              location.reload();
+            }}
+          />
+        )}
         {editingBook && <EditSheet book={editingBook} onClose={() => setEditing(null)} />}
         {readingBook && (
-          <Reader key={readingBook.id} book={readingBook} onClose={() => setReadingId(null)} />
+          <ReaderHost key={readingBook.id} book={readingBook} onClose={() => setReadingId(null)} />
         )}
         {playingBook && (
           <Player key={playingBook.id} book={playingBook} onClose={() => setPlaying(null)} />
@@ -2965,19 +4203,27 @@ export default function Page() {
             </div>
           </div>
         )}
-        {progress && (
+        {saving === "failing" && (
           <p
             role="status"
-            className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-full bg-[#3a3a3c] px-5 py-2 text-[13.500px] shadow-2xl max-md:bottom-[76px] md:left-[calc(50%+110px)]"
+            className="fixed top-3 left-1/2 z-50 -translate-x-1/2 rounded-full bg-[#5a2320] px-5 py-2 text-[13px] shadow-2xl md:left-[calc(50%+110px)]"
           >
-            Importing: {progress.done + progress.failed + 1} of {progress.total}. Failed:{" "}
-            {progress.failed}
+            Can’t reach the server. Your changes will be saved when it’s back.
           </p>
+        )}
+        {job && (
+          <ImportPanel
+            {...job}
+            onClose={() => {
+              setJob(null);
+              cursor.current = 0;
+            }}
+          />
         )}
         {hud && (
           <div
             role="status"
-            className="pointer-events-none fixed top-1/2 left-1/2 z-50 w-[258px] -translate-x-1/2 -translate-y-1/2 rounded-[22px] bg-[#3a3a3c]/75 px-6 pt-10 pb-7 text-center backdrop-blur-2xl md:left-[calc(50%+110px)]"
+            className="pointer-events-none fixed top-1/2 left-1/2 z-50 w-[258px] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[#3a3a3c]/75 px-6 pt-10 pb-7 text-center backdrop-blur-2xl md:left-[calc(50%+110px)]"
           >
             <Icon
               name="finished"

@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Library
 
-## Getting Started
+A self-hosted library for ebooks, audiobooks and PDFs.
 
-First, run the development server:
+## Run
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+npm install
+npm run build
+npm start            # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The first account created becomes the admin. Other people create their own accounts from the
+sign-in page until the admin turns that off under Settings → Account. Requires Node 24 (it
+uses the built-in `node:sqlite`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The sign-in page offers "Continue without an account" (a shared guest) in development, and in
+production only when `AUTH_BYPASS=1` is set. Leave it unset on a real server.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Forgotten passwords: the server sends no email. "Forgot password?" creates an 8-digit code,
+valid for 30 minutes, that the admin sees under Settings → Account and that is printed to the
+server log (`Password reset code for …`). An admin who is locked out reads it from the log.
 
-## Learn More
+Online data needs no keys: Open Library (books, covers, ratings, genres), Wikidata (series),
+Audible's public catalogue (audiobook narrators and series) and AniList (manga and manhwa).
+18+ titles are filtered out of search and recommendations; uploads are never filtered.
+Reviews are written by the people on the server and stored in its database.
 
-To learn more about Next.js, take a look at the following resources:
+Profiles: one sign-in can hold up to 8 profiles (Settings → Account), each with its own shelves,
+progress and stats, chosen from a "Who's reading?" screen. Profiles have no password of their own.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+With Docker (not yet tested): `docker compose up --build`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Data
 
-## Deploy on Vercel
+| Folder | Holds | Setting |
+| --- | --- | --- |
+| `data/` | `library.db` (accounts, shelves, ratings, progress, reading time) and cover images | `DATA_DIR` |
+| `library/` | the imported book and audio files | `LIBRARY_DIR` |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Back up both. `MAX_UPLOAD_MB` caps a single upload (default 2048).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Books and their metadata are shared by everyone on the server. Shelves, ratings, progress,
+bookmarks, highlights, goals and reading time belong to each account.
+
+## Tests
+
+```
+node --test app/reading.test.ts app/sync.test.ts app/server/metadata.test.ts
+```

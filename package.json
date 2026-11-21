@@ -9,13 +9,16 @@
   },
   "dependencies": {
     "epubjs": "^0.3.93",
+    "jszip": "^3.10.2",
+    "music-metadata": "^12.7.0",
     "next": "16.4.6",
+    "pdfjs-dist": "^6.5.438",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",
-    "@types/node": "^20",
+    "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "4.3.3",
