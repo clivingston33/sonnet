@@ -5,9 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Sonnet Docs</title>
     <meta name="description" content="Set up a Sonnet server, add your books and read them on every device." />
+    <title>Sonnet: your own library for ebooks, audiobooks and manga</title>
+    <meta name="description" content="A self-hosted library and reader for ebooks, audiobooks, PDFs and manga. Free and open source." />
     <meta name="theme-color" content="#1e1e1e" />
     <!-- Published by GitHub Pages from this folder; one file, nothing to build. -->
     <!-- The same colours, fonts and radii as the app (app/globals.css, app/ui.tsx). -->
+    <meta property="og:title" content="Sonnet" />
+    <meta property="og:description" content="A self-hosted library and reader for ebooks, audiobooks, PDFs and manga." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://clivingston33.github.io/sonnet/" />
+    <meta property="og:image" content="https://clivingston33.github.io/sonnet/screenshots/stats.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Source+Serif+4:wght@700&display=swap" rel="stylesheet" />
@@ -185,6 +194,7 @@
         }
       }
     </style>
+    <link rel="stylesheet" href="site.css" />
   </head>
   <body>
     <div class="page">
@@ -304,6 +314,12 @@ npm run build
 npm start</pre>
           <p>It serves on port 3000. To keep it running after you log out, start it from a service manager such as systemd.</p>
         </section>
+    <header class="top wrap">
+      <a class="brand" href="./"><span class="flower"></span>Sonnet</a>
+      <a href="docs.html">Docs</a>
+      <a href="download.html">Download</a>
+      <a href="https://github.com/clivingston33/sonnet">GitHub</a>
+    </header>
 
         <section id="first-run">
           <h2>First run</h2>
@@ -314,6 +330,20 @@ npm start</pre>
           </ol>
           <p>Everything in setup can be changed later in Settings.</p>
         </section>
+    <div class="wrap">
+      <section class="hero">
+        <h1>Your books, on your own server</h1>
+        <p>
+          Sonnet is a library and reader for ebooks, audiobooks, PDFs and manga. It runs on your computer
+          or home server, and you read on every device you own.
+        </p>
+        <div class="buttons">
+          <a class="button" href="download.html">Download</a>
+          <a class="button quiet" href="docs.html">Read the Docs</a>
+        </div>
+        <small>Free and open source. Windows, macOS, Docker and Node.</small>
+        <img class="shot" src="screenshots/library.webp" alt="The library, a grid of book covers" />
+      </section>
 
         <section id="books">
           <h2>Adding books</h2>
@@ -342,6 +372,12 @@ npm start</pre>
               <tr><td>Books, PDFs, manga and comics</td><td>EPUB, PDF, CBZ, TXT</td></tr>
               <tr><td>Audiobooks</td><td>M4B, MP3, M4A, FLAC, OGG, OPUS, WAV</td></tr>
             </table>
+      <section class="band">
+        <h2>Everything in one place</h2>
+        <div class="features">
+          <div>
+            <b>Reads in the browser</b>
+            <p>EPUB, PDF, CBZ and plain text open in the app, with nothing else to install.</p>
           </div>
           <p>
             Audio files that share an album tag become one audiobook with chapters. CBZ volumes named like
@@ -380,6 +416,28 @@ npm start</pre>
 }</pre>
           <p>If the server is open to the internet, turn off sign-ups under Settings → Account once everyone has an account.</p>
         </section>
+          <div>
+            <b>Audiobooks</b>
+            <p>M4B, MP3, M4A, FLAC, OGG, Opus and WAV. Files of one book merge into one, with chapters.</p>
+          </div>
+          <div>
+            <b>Manga and comics</b>
+            <p>Right to left, left to right or scrolling. Volumes are grouped into their series.</p>
+          </div>
+          <div>
+            <b>Covers and details, no keys</b>
+            <p>Covers, ratings, genres and series come from Open Library, Wikidata, Audible and AniList.</p>
+          </div>
+          <div>
+            <b>Profiles and families</b>
+            <p>Up to 8 profiles on one sign-in, each with its own shelves, progress and optional PIN.</p>
+          </div>
+          <div>
+            <b>Works offline</b>
+            <p>Install it to a phone’s home screen and keep books on the device. Progress is sent later.</p>
+          </div>
+        </div>
+      </section>
 
         <section id="people">
           <h2>People</h2>
@@ -390,8 +448,60 @@ npm start</pre>
               <tr><td><b>Profile</b></td><td>One sign-in holds up to 8 profiles, each with its own shelves, progress, goals and optional PIN. Change who is reading with Switch Profile in the account menu.</td></tr>
               <tr><td><b>Family</b></td><td>Accounts that share a six-digit family code see each other’s shared shelves, recommendations and reviews. Enter the code when creating an account, or later in Settings.</td></tr>
             </table>
+      <section class="band">
+        <h2>A closer look</h2>
+        <div class="tour">
+          <div>
+            <h3>A reader with the usual tools</h3>
+            <p>
+              Paged or scrolling, with dark, sepia and light themes. Bookmarks, highlights, notes, search
+              and a table of contents.
+            </p>
           </div>
         </section>
+          <img class="shot" src="screenshots/reader.png" alt="The reader showing a chapter of Frankenstein" loading="lazy" />
+        </div>
+        <div class="tour">
+          <div>
+            <h3>Goals and streaks</h3>
+            <p>
+              Reading time counts on its own while a book is open or an audiobook plays. Set a daily and a
+              yearly goal and watch the chart fill in.
+            </p>
+          </div>
+          <img class="shot" src="screenshots/stats.png" alt="Reading stats, with streaks and a chart of the last 30 days" loading="lazy" />
+        </div>
+        <div class="tour">
+          <div>
+            <h3>Find the next one</h3>
+            <p>
+              Search shows new and trending books and manga, and follows your favourite genres once you
+              have read a few. Add one to Want to Read before you own it.
+            </p>
+          </div>
+          <img class="shot" src="screenshots/search.webp" alt="Search results from the online catalogue" loading="lazy" />
+        </div>
+        <div class="tour">
+          <div>
+            <h3>Ratings and reviews</h3>
+            <p>
+              See what other readers think, then rate a book yourself when you finish it. Reviews are
+              written by the people on your server and stay there.
+            </p>
+          </div>
+          <img class="shot" src="screenshots/detail.webp" alt="A book's details, ratings and reviews" loading="lazy" />
+        </div>
+        <div class="tour">
+          <div>
+            <h3>On your phone too</h3>
+            <p>
+              The same library in the phone’s browser, or on its home screen like any other app. Swipe to
+              turn the page.
+            </p>
+          </div>
+          <img class="shot phone" src="screenshots/mobile.webp" alt="Home on a phone" loading="lazy" />
+        </div>
+      </section>
 
         <section id="backups">
           <h2>Backups</h2>
@@ -404,6 +514,22 @@ npm start</pre>
             your library folders as you would any other files.
           </p>
         </section>
+      <section class="band">
+        <h2>Built like Jellyfin</h2>
+        <p>
+          A server holds the library. A browser or the Sonnet app reads from it. There is no account with
+          us and nothing to pay for.
+        </p>
+        <div class="table">
+          <table>
+            <tr><th>You want</th><th>Use</th><th>Needs</th></tr>
+            <tr><td>A library just for you, on one computer</td><td><a href="download.html">Sonnet app</a></td><td>Nothing</td></tr>
+            <tr><td>A library for the household, run from a PC or Mac</td><td><a href="download.html">Sonnet Server app</a></td><td>A computer that stays on</td></tr>
+            <tr><td>A library on a home server or NAS</td><td><a href="docs.html#docker">Docker</a></td><td>Docker</td></tr>
+            <tr><td>To run it from the source</td><td><a href="docs.html#node">Node</a></td><td>Node 24</td></tr>
+          </table>
+        </div>
+      </section>
 
         <section id="configuration">
           <h2>Configuration</h2>
@@ -416,6 +542,12 @@ npm start</pre>
               <tr><td><code>MAX_UPLOAD_MB</code></td><td><code>2048</code></td><td>The largest file that can be imported</td></tr>
               <tr><td><code>PORT</code></td><td><code>3000</code></td><td>The port the server listens on</td></tr>
             </table>
+      <section class="band">
+        <h2>Yours to keep</h2>
+        <div class="features">
+          <div>
+            <b>Your files stay yours</b>
+            <p>Sonnet reads books from your folders where they are. It never changes, moves or deletes them.</p>
           </div>
         </section>
 
@@ -439,6 +571,28 @@ npm start</pre>
           <p>Open an issue on <a href="https://github.com/clivingston33/sonnet/issues">GitHub</a>.</p>
         </section>
       </main>
+          <div>
+            <b>Nothing phones home</b>
+            <p>No analytics and no telemetry. Your progress is kept on your own server. <a href="privacy.html">Privacy</a></p>
+          </div>
+          <div>
+            <b>Open source</b>
+            <p>The whole thing is on <a href="https://github.com/clivingston33/sonnet">GitHub</a> under the AGPL-3.0 licence.</p>
+          </div>
+        </div>
+        <div class="buttons">
+          <a class="button" href="download.html">Download</a>
+          <a class="button quiet" href="docs.html">Read the Docs</a>
+        </div>
+      </section>
     </div>
+
+    <footer class="wrap">
+      <span>Sonnet is free software under the AGPL-3.0 licence.</span>
+      <a href="docs.html">Docs</a>
+      <a href="download.html">Download</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="https://github.com/clivingston33/sonnet">GitHub</a>
+    </footer>
   </body>
 </html>

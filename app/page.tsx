@@ -1413,8 +1413,8 @@ function Setup() {
   );
 }
 
-/** The guide, published from docs/index.html by GitHub Pages: it is read before there is a server. */
-const DOCS = "https://clivingston33.github.io/sonnet/";
+/** The guide, on the site GitHub Pages publishes from docs/: it is read before there is a server. */
+const DOCS = "https://clivingston33.github.io/sonnet/docs.html";
 
 const HELP: [string, string][] = [
   [

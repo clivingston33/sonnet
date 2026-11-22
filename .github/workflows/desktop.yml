@@ -8,6 +8,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: write # to attach the installers to the release
     strategy:
       matrix:
         os: [windows-latest, macos-latest, macos-15-intel]
@@ -32,3 +34,12 @@ jobs:
             desktop/dist/*.dmg
             desktop/dist/server/*.exe
             desktop/dist/server/*.dmg
+      # A tag publishes them: the release is where the website's Download button leads.
+      - if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          gh release create "$GITHUB_REF_NAME" --generate-notes || true # another system's job made it first
+          gh release upload "$GITHUB_REF_NAME" dist/*.exe dist/*.dmg dist/server/*.exe dist/server/*.dmg --clobber
