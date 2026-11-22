@@ -26,7 +26,7 @@ function open() {
       id INTEGER PRIMARY KEY,
       first TEXT NOT NULL,
       last TEXT NOT NULL DEFAULT '',
-      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
       password TEXT NOT NULL,
       admin INTEGER NOT NULL DEFAULT 0,
       prefs TEXT NOT NULL DEFAULT '{}'
@@ -92,8 +92,11 @@ function open() {
       PRIMARY KEY (user_id, day)
     );
   `);
-  // Columns added after the first release; older databases lack them.
+  // Columns added or renamed after the first release; older databases differ.
   for (const column of [
+    // Accounts used to sign in with an email address that nothing ever checked or wrote to.
+    // Those made back then keep that address as their username.
+    "users RENAME COLUMN email TO username",
     "users ADD COLUMN owner INTEGER REFERENCES users(id) ON DELETE CASCADE", // profiles: shares the owner's sign-in
     "users ADD COLUMN pin TEXT", // optional profile PIN, hashed like a password
     "users ADD COLUMN family INTEGER REFERENCES families(id) ON DELETE SET NULL", // accounts only

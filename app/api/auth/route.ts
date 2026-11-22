@@ -66,7 +66,7 @@ export async function GET(req: Request) {
       ? db
           .prepare(
             // `reset` is a code the person asked for after forgetting their password; the admin passes it on.
-            `SELECT id, first || ' ' || last AS name, email, admin,
+            `SELECT id, first || ' ' || last AS name, username, admin,
                (SELECT code FROM resets r WHERE r.user_id = users.id AND r.expires > ?) AS reset
              FROM users WHERE owner IS NULL ORDER BY id`,
           )
@@ -75,30 +75,35 @@ export async function GET(req: Request) {
   });
 }
 
+/** What a chosen username may be. Accounts older than usernames keep an email address instead. */
+const USERNAME = /^[a-z0-9._-]{3,30}$/i;
+const BAD_USERNAME = "Choose a username of 3 to 30 letters, numbers, dots, dashes or underscores.";
+
 /** POST { action: "register" | "login" | "logout" | "password" | "signups" | "removeUser", ... } */
 export async function POST(req: Request) {
   if (crossSite(req)) return fail("Forbidden", 403);
   const body: Record<string, unknown> = await req.json().catch(() => ({}));
   const signIn = (id: number, remember: boolean) =>
     Response.json({ ok: true }, { headers: { "Set-Cookie": startSession(req, id, remember) } });
-  const create = (first: string, last: string, email: string, password: string, admin = false) =>
+  const create = (first: string, last: string, username: string, password: string, admin = false) =>
     Number(
       db
-        .prepare("INSERT INTO users (first, last, email, password, admin) VALUES (?, ?, ?, ?, ?)")
-        .run(first, last, email, hashPassword(password), admin ? 1 : 0).lastInsertRowid,
+        .prepare("INSERT INTO users (first, last, username, password, admin) VALUES (?, ?, ?, ?, ?)")
+        .run(first, last, username, hashPassword(password), admin ? 1 : 0).lastInsertRowid,
     );
-  const idOf = (email: string) => db.prepare("SELECT id FROM users WHERE email = ?").get(email)?.id;
+  const idOf = (username: string) =>
+    db.prepare("SELECT id FROM users WHERE username = ?").get(username)?.id;
 
   if (body.action === "register") {
     const admin = noAdmin();
     if (!admin && !signupsOpen())
       return fail("New accounts are turned off on this server. Ask its admin.", 403);
     const first = text(body.first, 40);
-    const email = text(body.email, 200);
+    const username = text(body.username, 30);
     if (!first) return fail("Enter your first name.");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("Enter a valid email address.");
+    if (!USERNAME.test(username)) return fail(BAD_USERNAME);
     if (!validPassword(body.password)) return fail("Use a password of at least 8 characters.");
-    if (idOf(email)) return fail("An account with that email already exists. Sign in instead.", 409);
+    if (idOf(username)) return fail("That username is taken. Choose another, or sign in instead.", 409);
     // Optional: the six-digit code of a family to join. Without one the account starts its own.
     const code = text(body.family, 10);
     // Nobody is signed in yet, so wrong codes are counted for the whole server:
@@ -110,35 +115,36 @@ export async function POST(req: Request) {
       miss("family-code");
       return fail("No family has that code. Check it, or leave it empty.");
     }
-    const id = create(first, text(body.last, 40), email, body.password, admin);
+    const id = create(first, text(body.last, 40), username, body.password, admin);
     if (joining) db.prepare("UPDATE users SET family = ? WHERE id = ?").run(joining.id, id);
     return signIn(id, body.remember === true);
   }
 
   if (body.action === "login") {
-    const email = text(body.email, 200).toLowerCase();
-    const wait = locked(email);
+    // 200: accounts from before usernames sign in with the email address they were made with.
+    const username = text(body.username, 200).toLowerCase();
+    const wait = locked(username);
     if (wait) return tooMany(wait);
-    const row = db.prepare("SELECT id, password FROM users WHERE email = ?").get(email);
+    const row = db.prepare("SELECT id, password FROM users WHERE username = ?").get(username);
     if (!row || typeof body.password !== "string" || !checkPassword(body.password, String(row.password))) {
-      miss(email);
-      return fail("Wrong email or password.", 401);
+      miss(username);
+      return fail("Wrong username or password.", 401);
     }
-    misses.delete(email);
+    misses.delete(username);
     return signIn(Number(row.id), body.remember === true);
   }
 
   // There is no mail server, so the code goes to the admin (Settings → Account) and the server log.
   if (body.action === "forgot") {
-    const email = text(body.email, 200);
-    const id = idOf(email);
+    const username = text(body.username, 200);
+    const id = idOf(username);
     if (id) {
       const code = randomInt(1e8).toString().padStart(8, "0");
       db.prepare(
         `INSERT INTO resets (user_id, code, expires) VALUES (?, ?, ?)
          ON CONFLICT DO UPDATE SET code = excluded.code, expires = excluded.expires, tries = 0`,
       ).run(id, code, Date.now() + 30 * 60_000);
-      console.log(`Password reset code for ${email}: ${code} (valid for 30 minutes)`);
+      console.log(`Password reset code for ${username}: ${code} (valid for 30 minutes)`);
     }
     return Response.json({ ok: true }); // the same answer either way, so this can't be used to find accounts
   }
@@ -148,9 +154,9 @@ export async function POST(req: Request) {
     const row = db
       .prepare(
         `SELECT r.user_id, r.code, r.tries FROM resets r JOIN users u ON u.id = r.user_id
-         WHERE u.email = ? AND r.expires > ?`,
+         WHERE u.username = ? AND r.expires > ?`,
       )
-      .get(text(body.email, 200), Date.now());
+      .get(text(body.username, 200), Date.now());
     if (!row || row.code !== text(body.code, 20)) {
       // Five wrong guesses and the code is gone.
       if (row)
@@ -183,6 +189,19 @@ export async function POST(req: Request) {
     return Response.json({ ok: true });
   }
 
+  if (body.action === "username") {
+    // Like the password, it belongs to the account. The password is asked for: this is what signs in.
+    const username = text(body.username, 30);
+    if (!USERNAME.test(username)) return fail(BAD_USERNAME);
+    const row = db.prepare("SELECT password FROM users WHERE id = ?").get(user.account)!;
+    if (typeof body.current !== "string" || !checkPassword(body.current, String(row.password)))
+      return fail("Your password is wrong.", 403);
+    const taken = idOf(username);
+    if (taken && taken !== user.account) return fail("That username is taken. Choose another.", 409);
+    db.prepare("UPDATE users SET username = ? WHERE id = ?").run(username, user.account);
+    return Response.json({ ok: true });
+  }
+
   // Moves this account (and its profiles) into the family that has the code.
   if (body.action === "joinFamily") {
     const key = `family:${user.account}`;
@@ -212,7 +231,8 @@ export async function POST(req: Request) {
     if (!name) return fail("Enter a name.");
     const count = db.prepare("SELECT count(*) AS n FROM users WHERE owner = ?").get(user.account)!.n;
     if (Number(count) >= 7) return fail("An account can have up to 8 profiles.");
-    // A profile can't sign in by itself: its email is a placeholder and nobody knows its password.
+    // A profile can't sign in by itself: nobody knows its password, and its placeholder name
+    // has an "@", which no chosen username can.
     const id = create(name, "", `profile-${randomUUID()}@local`, randomUUID());
     db.prepare("UPDATE users SET owner = ? WHERE id = ?").run(user.account, id);
     return Response.json({ ok: true });

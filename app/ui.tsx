@@ -100,6 +100,21 @@ export function Icon({
   );
 }
 
+const PETAL =
+  "M0 0C-5-13-23-21-22-37C-21-50 21-50 22-37C23-21 5-13 0 0ZM0-9C-2-15-9-20-8.500-28C-8-35 8-35 8.500-28C9-20 2-15 0-9Z";
+/** The Sonnet flower, in the colour of the text around it. The same drawing as app/icon.svg. */
+export function Logo({ className }: { className: string }) {
+  return (
+    <svg viewBox="-64 -64 128 128" className={className} fill="currentColor" aria-hidden>
+      <g transform="scale(1.2)">
+        {[8, 80, 152, 224, 296].map((turn) => (
+          <path key={turn} transform={`rotate(${turn}) skewX(-14)`} fillRule="evenodd" d={PETAL} />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 export const DOTS = (
   <svg viewBox="0 0 18 6" className="w-[18px]" fill="currentColor" aria-hidden>
     <circle cx="3" cy="3" r="1.7" />

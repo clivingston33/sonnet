@@ -16,6 +16,7 @@ import {
   DOTS,
   EmptyState,
   Icon,
+  Logo,
   MENU_RULE,
   MenuItem,
   Popover,
@@ -96,6 +97,11 @@ const NOT_OWNED = (
     NOT OWNED
   </span>
 );
+
+declare global {
+  /** Set by the desktop app (desktop/preload.js), which can switch to another library; absent in a browser. */
+  var sonnetDesktop: { changeServer: () => void } | undefined;
+}
 
 type DetailState = { ids: string[]; id: string }; // ids = the list the arrows step through
 
@@ -1274,9 +1280,9 @@ const SETTINGS_TABS: [id: string, label: string, icon: IconName][] = [
 
 type Account = {
   id: number;
-  account: number; // the profile that signs in; other profiles share its email and password
+  account: number; // the profile that signs in; other profiles share its username and password
   name: string;
-  email: string;
+  username: string;
   admin: boolean;
   reset?: string | null;
 };
@@ -1577,7 +1583,10 @@ async function authCall(body: Record<string, unknown>) {
   }
 }
 
-/** A name + password form; `onSubmit` resolves to an error message or null. */
+/**
+ * Two fields and a button: current and new password, or a new name and the current password
+ * that allows the change. `onSubmit` resolves to an error message or null.
+ */
 function Credentials({
   labels,
   button,
@@ -1613,7 +1622,7 @@ function Credentials({
       <input
         name="second"
         type="password"
-        autoComplete="new-password"
+        autoComplete={secret ? "new-password" : "current-password"}
         aria-label={labels[1]}
         placeholder={labels[1]}
         required
@@ -1662,7 +1671,7 @@ function Users() {
         <SettingRow
           key={u.id}
           title={u.name}
-          text={`${u.email} • ${u.admin ? "Admin" : "Reader"}${u.reset ? ` • Forgot their password: give them reset code ${u.reset}` : ""}`}
+          text={`${u.username} • ${u.admin ? "Admin" : "Reader"}${u.reset ? ` • Forgot their password: give them reset code ${u.reset}` : ""}`}
         >
           <div className="flex gap-2">
             <button
@@ -1737,11 +1746,27 @@ function SettingsSheet({
       <>
         <SettingRow
           title={user.name}
-          text={`${user.email} • ${user.admin ? "Admin of this server" : "Reader"}`}
+          text={`${user.username} • ${user.admin ? "Admin of this server" : "Reader"}`}
         >
           <button onClick={logout} className={controlClass}>
             Log Out
           </button>
+        </SettingRow>
+        <SettingRow
+          title="Change username"
+          text="What you sign in with: 3 to 30 letters, numbers, dots, dashes or underscores."
+        >
+          <Credentials
+            labels={["New username", "Your password"]}
+            button="Change"
+            onSubmit={async (username, current) => {
+              const failed = await authCall({ action: "username", username, current });
+              if (failed) return failed;
+              toast("Saved", `You now sign in as ${username}.`);
+              setTimeout(() => location.reload(), 1200); // the page still shows the old one
+              return null;
+            }}
+          />
         </SettingRow>
         <SettingRow title="Change password" text="At least 8 characters.">
           <Credentials
@@ -3853,7 +3878,7 @@ function ImportPanel({
 function SignIn({ onDone }: { onDone: () => void }) {
   const [options, setOptions] = useState({ first: false, signups: true });
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
-  const [sent, setSent] = useState<string | null>(null); // email a reset code was requested for
+  const [sent, setSent] = useState<string | null>(null); // username a reset code was requested for
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3919,7 +3944,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
   return (
     <main className="flex min-h-full items-center justify-center p-4">
       <div className="w-[440px] max-w-full rounded-[28px] bg-[#2c2c2e] p-8 shadow-2xl">
-        <Icon name="book" className="size-9" />
+        <Logo className="size-9" />
         <h1 className="mt-3 font-serif text-[28px] font-bold">
           {registering ? "Create your account" : mode === "forgot" ? "Reset your password" : "Welcome back"}
         </h1>
@@ -3931,7 +3956,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
               : mode === "forgot"
                 ? sent
                   ? "Enter the code and choose a new password."
-                  : "Enter your account’s email to get a reset code."
+                  : "Enter your account’s username to get a reset code."
                 : "Sign in to pick up where you left off."}
         </p>
 
@@ -3961,12 +3986,12 @@ function SignIn({ onDone }: { onDone: () => void }) {
               return setError("The two passwords don’t match.");
             if (mode !== "forgot")
               return send({ ...data, action: mode, remember: data.remember === "on" });
-            if (sent) return send({ ...data, action: "reset", email: sent });
+            if (sent) return send({ ...data, action: "reset", username: sent });
             setBusy(true);
-            const failed = await authCall({ action: "forgot", email: data.email });
+            const failed = await authCall({ action: "forgot", username: data.username });
             setBusy(false);
             setError(failed);
-            if (!failed) setSent(String(data.email));
+            if (!failed) setSent(String(data.username));
           }}
         >
           {registering && (
@@ -4004,11 +4029,17 @@ function SignIn({ onDone }: { onDone: () => void }) {
               })}
             </>
           ) : (
-            field("email", "Email", {
-              type: "email",
-              autoComplete: "email",
+            field("username", "Username", {
+              autoComplete: "username",
+              autoCapitalize: "none",
+              spellCheck: false,
               required: true,
               autoFocus: !registering,
+              // Only when choosing one: older accounts sign in with the email address they were made with.
+              ...(registering && {
+                pattern: "[A-Za-z0-9._\\-]{3,30}",
+                "data-tip": "3 to 30 letters, numbers, dots, dashes or underscores",
+              }),
             })
           )}
           {mode === "login" && secret("password", "Password", false)}
@@ -4064,6 +4095,15 @@ function SignIn({ onDone }: { onDone: () => void }) {
           <p className="mt-4 text-center text-[12px] text-[#8c8c8c]">
             New accounts are turned off here. Ask the server’s admin to let you in.
           </p>
+        )}
+        {globalThis.sonnetDesktop && (
+          <button
+            // Called bare: the bridge can't be handed the click event.
+            onClick={() => globalThis.sonnetDesktop?.changeServer()}
+            className="mx-auto mt-4 block text-[13px] text-[#a0a0a0] hover:text-white hover:underline"
+          >
+            Change library
+          </button>
         )}
       </div>
     </main>
@@ -4390,6 +4430,14 @@ export default function Page() {
         <button onClick={load} className={`${controlClass} mt-5`}>
           Try Again
         </button>
+        {globalThis.sonnetDesktop && (
+          <button
+            onClick={() => globalThis.sonnetDesktop?.changeServer()}
+            className="mt-4 text-[13px] text-[#a0a0a0] hover:text-white hover:underline"
+          >
+            Change library
+          </button>
+        )}
       </main>
     ) : (
       <SignIn
@@ -4861,6 +4909,13 @@ export default function Page() {
                 />
                 {MENU_RULE}
                 <MenuItem icon="user" label="Switch Profile" onClick={lib.pickProfile} />
+                {globalThis.sonnetDesktop && (
+                  <MenuItem
+                    icon="want"
+                    label="Change Library"
+                    onClick={() => globalThis.sonnetDesktop?.changeServer()}
+                  />
+                )}
                 <MenuItem icon="logout" label="Log Out" onClick={lib.logout} />
               </Popover>
             </div>

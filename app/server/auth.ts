@@ -3,9 +3,9 @@ import { db } from "./db";
 
 /**
  * Whoever is using the app: a profile. `account` is the profile that signs in (it has the
- * email and password); the profiles under it share that sign-in, like profiles on a streaming service.
+ * username and password); the profiles under it share that sign-in, like profiles on a streaming service.
  */
-export type User = { id: number; account: number; name: string; email: string; admin: boolean };
+export type User = { id: number; account: number; name: string; username: string; admin: boolean };
 
 const DAY = 60 * 60 * 24; // seconds
 
@@ -32,8 +32,8 @@ export function currentUser(req: Request): User | null {
   if (!token) return null;
   const row = db
     .prepare(
-      // A profile shows its account's email, not its own placeholder.
-      `SELECT u.id, u.owner, u.first, u.last, coalesce(o.email, u.email) AS email, u.admin
+      // A profile shows its account's username, not its own placeholder.
+      `SELECT u.id, u.owner, u.first, u.last, coalesce(o.username, u.username) AS username, u.admin
        FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN users o ON o.id = u.owner
        WHERE s.token = ? AND s.expires > ?`,
     )
@@ -43,7 +43,7 @@ export function currentUser(req: Request): User | null {
         id: Number(row.id),
         account: Number(row.owner ?? row.id),
         name: `${row.first} ${row.last}`.trim(),
-        email: String(row.email),
+        username: String(row.username),
         admin: !!row.admin,
       }
     : null;
