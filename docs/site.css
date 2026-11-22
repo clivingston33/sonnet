@@ -167,11 +167,140 @@ footer .brand {
   -webkit-mask-image: url(github.svg);
   mask-image: url(github.svg);
 }
-/* The mark, with the star count site.js fills in beside it. */
-.gh {
+/*
+ * The buttons move the way Amicro's do (amicro.dev, MIT): they grow under the pointer and give
+ * when pressed, and their icons trade places. Its springs are Motion's; here they are one curve.
+ */
+.button,
+.gh,
+.icon,
+.swap > * {
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.15s,
+    width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    margin 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.15s,
+    color 0.15s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .gh,
+  .icon,
+  .swap > * {
+    transition: none;
+  }
+}
+.button:hover,
+.gh:hover {
+  transform: scale(1.02);
+}
+.button:active,
+.gh:active {
+  transform: scale(0.96);
+}
+/* Small drawings in the colour of the text: an arrow down into a tray, an arrow right, a star. */
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: center / 16px no-repeat;
+  mask: center / 16px no-repeat;
+}
+.icon.down {
+  --art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3'/%3E%3C/svg%3E");
+}
+.icon.arrow {
+  --art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M12 5l7 7-7 7'/%3E%3C/svg%3E");
+}
+.icon.star {
+  --art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l2.4 7.6H22l-6.2 4.5 2.4 7.6-6.2-4.5-6.2 4.5 2.4-7.6L2 9.6h7.6z'/%3E%3C/svg%3E");
+}
+.icon {
+  -webkit-mask-image: var(--art);
+  mask-image: var(--art);
+}
+/* Amicro's slide arrow: under the pointer the icon before the words leaves and an arrow arrives after them. */
+.slide .icon:first-child {
+  margin-right: 10px;
+}
+.slide .icon:last-child,
+.slide:hover .icon:first-child {
+  width: 0;
+  margin: 0;
+  opacity: 0;
+}
+.slide .icon:last-child {
+  transform: translateX(10px);
+}
+.slide:hover .icon:first-child {
+  transform: translateX(-10px);
+}
+.slide:hover .icon:last-child {
+  width: 16px;
+  margin-left: 10px;
+  opacity: 1;
+  transform: none;
+}
+/* Amicro's star on GitHub: the mark, with the star count site.js fills in; under the pointer a star rises in its place. */
+.top .gh {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-weight: bold;
+  color: #f2f2f2;
+}
+.top .gh:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.gh [data-stars]:empty {
+  display: none;
+}
+.swap {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+.swap > * {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+.swap .star,
+.gh:hover .mark {
+  opacity: 0;
+  transform: translateY(15px) scale(0.8);
+}
+.gh:hover .mark {
+  transform: translateY(-15px) scale(0.8);
+}
+.swap .star {
+  color: #facc15;
+}
+.gh:hover .star {
+  opacity: 1;
+  transform: none;
+}
+/* The small star that pops beside the big one, a moment later. */
+.swap .spark {
+  inset: -9px -8px auto auto;
+  width: 9px;
+  height: 9px;
+  margin: 0;
+  -webkit-mask-size: 9px;
+  mask-size: 9px;
+  color: #fef08a;
+  transform: translateY(10px) rotate(-45deg) scale(0);
+}
+.gh:hover .spark {
+  transform: none;
+  transition-delay: 0.05s;
 }
 /* What Sonnet is, three lists of links, and a line of small print under a rule. */
 /* `.wrap` too, or its own margin and padding would win over these. */
@@ -224,7 +353,8 @@ footer.wrap {
 }
 /* The app's two buttons: white and round, and the small grey one. */
 .button {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   height: 40px;
   padding: 0 24px;
   border-radius: 999px;
@@ -232,7 +362,6 @@ footer.wrap {
   color: #000;
   font-size: 14px;
   font-weight: bold;
-  line-height: 40px;
 }
 .button:hover {
   background: rgba(255, 255, 255, 0.85);

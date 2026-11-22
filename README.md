@@ -164,3 +164,5 @@ npm test
 ## License
 
 [AGPL-3.0](LICENSE) © Caleb Livingston
+
+The website's button animations are after [Amicro](https://amicro.dev) (MIT).
