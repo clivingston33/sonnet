@@ -189,7 +189,7 @@ function Shell({
         {controls}
       </header>
       <div className="relative flex min-h-0 grow" onTouchStart={swiped.start} onTouchEnd={swiped.end}>
-        <div className="flex min-w-0 grow flex-col">{children}</div>
+        <div className="relative flex min-w-0 grow flex-col">{children}</div>
         {onTurn &&
           ([-1, 1] as const).map((by) => (
             <button
@@ -197,7 +197,8 @@ function Shell({
               aria-label={by < 0 ? "Page to the left" : "Page to the right"}
               onClick={() => onTurn(by)}
               // As wide as the margin beside the 720px page, and never too narrow to tap.
-              className={`group absolute inset-y-0 flex w-[max(44px,calc((100%-760px)/2))] items-center ${wideEdges ? "max-md:w-[32%]" : ""} ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
+              // `wideEdges`: each side's 45% of the page turns it, leaving a strip in the middle.
+              className={`group absolute inset-y-0 flex items-center ${wideEdges ? "w-[45%]" : "w-[max(44px,calc((100%-760px)/2))]"} ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
             >
               <Icon
                 name={by < 0 ? "chevronLeft" : "chevronRight"}
@@ -243,6 +244,51 @@ function ToolButton({
     <button aria-label={label} aria-pressed={pressed} onClick={onClick} className={iconButton}>
       <Icon name={icon} className="size-5" fill={pressed && icon === "bookmark" ? "currentColor" : "none"} />
     </button>
+  );
+}
+
+/** Grey shapes where the page will be, shown while a book is fetched and opened. */
+function Loading({ lines = false }: { lines?: boolean }) {
+  return (
+    <div
+      role="status"
+      aria-label="Loading"
+      className="pointer-events-none absolute inset-0 z-[1] flex animate-pulse items-center justify-center p-6"
+    >
+      {lines ? (
+        <div className="w-full max-w-[640px] space-y-4">
+          {[100, 96, 88, 100, 92, 60, 100, 94, 85, 100, 90, 45].map((width, i) => (
+            <div key={i} className="h-4 rounded bg-current opacity-10" style={{ width: `${width}%` }} />
+          ))}
+        </div>
+      ) : (
+        <div className="aspect-[2/3] max-h-[85%] w-[min(80%,420px)] rounded-lg bg-current opacity-10" />
+      )}
+    </div>
+  );
+}
+
+/** The toolbar's page-turning choice: a small button that opens the list of ways to read. */
+function ModeMenu({
+  mode,
+  options,
+  onPick,
+}: {
+  mode: PageMode;
+  options: [PageMode, string][];
+  onPick: (mode: PageMode) => void;
+}) {
+  return (
+    <Popover
+      label="Page turning"
+      button={<Icon name="panels" className="size-5" />}
+      buttonClass={iconButton}
+      panelClass="top-8 right-0 w-[210px] max-md:w-[270px]"
+    >
+      {options.map(([value, label]) => (
+        <MenuItem key={value} label={label} checked={mode === value} onClick={() => onPick(value)} />
+      ))}
+    </Popover>
   );
 }
 
@@ -322,6 +368,11 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
   const [selection, setSelection] = useState<{ cfi: string; text: string } | null>(null);
   const [found, setFound] = useState<Found[] | "searching" | null>(null);
   const [broken, setBroken] = useState(false);
+  const [ready, setReady] = useState(false); // the first page is on screen
+  const [pages, setPages] = useState(0); // how many screens the book is cut into, once counted
+  // "scroll": each chapter is one column to scroll down; otherwise pages to turn.
+  const scrolling = book.mode === "scroll";
+  const scrollingRef = useRef(scrolling);
   const bookmarks = book.bookmarks ?? [];
   const highlights = book.highlights ?? [];
 
@@ -347,7 +398,12 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         const opened = ePub(src(book), { openAs: "epub" });
         epub.current = opened;
         // One column, like a page; wide windows get margins instead of a second column.
-        const r = opened.renderTo(stage.current!, { width: "100%", height: "100%", spread: "none" });
+        const r = opened.renderTo(stage.current!, {
+          width: "100%",
+          height: "100%",
+          spread: "none",
+          flow: scrolling ? "scrolled-doc" : "paginated",
+        });
         rendition.current = r;
         r.themes.default({
           body: {
@@ -357,31 +413,41 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           a: { color: "#1c9be6 !important" },
         });
         paint(r, prefs);
-        // Sideways drags belong to page turning: without this a phone starts its own panning and
-        // the swipe never finishes.
-        r.hooks.content.register((contents: Contents) => {
-          contents.document.documentElement.style.touchAction = "none";
-        });
+        // (epub.js types getContents as one Contents; it is a list, one per visible section.)
+        const selecting = () =>
+          (r.getContents() as unknown as Contents[]).some((c) => String(c.window.getSelection() ?? "").length > 0);
         r.on("keyup", turn); // key presses while focus is inside the book
-        // The book is in its own frame, so swipes on the text have to be picked up there.
-        const swiped = swipe((by) => {
-          // Dragging the handles of a text selection is not a page turn.
-          // (epub.js types this as one Contents; it is a list, one per visible section.)
-          if ((r.getContents() as unknown as Contents[]).some((c) => !c.window.getSelection()?.isCollapsed)) return;
-          if (by < 0) r.prev();
-          else r.next();
-        });
-        r.on("touchstart", swiped.start);
-        r.on("touchend", swiped.end);
-        // On touch screens a tap on the left or right third of the page turns it, like an e-reader.
-        r.on("click", (e: MouseEvent) => {
-          if (!matchMedia("(pointer: coarse)").matches || (e.target as Element).closest?.("a")) return;
-          const view = (e.target as Element).ownerDocument.defaultView;
-          if (!view?.getSelection()?.isCollapsed) return;
-          // The frame holds every page side by side; this is where the tap landed in the window.
-          const x = (view.frameElement?.getBoundingClientRect().left ?? 0) + e.clientX;
-          if (x < window.innerWidth * 0.32) r.prev();
-          else if (x > window.innerWidth * 0.68) r.next();
+        // Dragging the handles of a text selection is not a page turn.
+        const swiped = swipe((by) => selecting() || (by < 0 ? r.prev() : r.next()));
+        // A tap or click on the left or right 45% of the page turns it, like an e-reader.
+        let pending: ReturnType<typeof setTimeout>;
+        const tapped = (e: MouseEvent) => {
+          clearTimeout(pending);
+          if (e.detail > 1 || scrollingRef.current || (e.target as Element).closest?.("a")) return;
+          const box = stage.current?.firstElementChild?.getBoundingClientRect();
+          if (!box?.width) return;
+          // The frame holds the chapter's pages side by side. Browsers differ in whether its
+          // position reflects the page being shown, so the place within one page is taken instead.
+          const frame = e.view?.frameElement?.getBoundingClientRect().left ?? box.left;
+          const at = ((((frame - box.left + e.clientX) % box.width) + box.width) % box.width) / box.width;
+          const turn = () => {
+            if (selecting()) return;
+            if (at < 0.45) r.prev();
+            else if (at > 0.55) r.next();
+          };
+          // With a mouse, wait a moment: a double-click selects a word and must not turn the page.
+          if (matchMedia("(pointer: coarse)").matches) turn();
+          else pending = setTimeout(turn, 250);
+        };
+        // The book is in its own frame, so touches and clicks on the text are picked up there.
+        r.hooks.content.register((contents: Contents) => {
+          const page = contents.document;
+          // Sideways drags belong to page turning: left to itself a phone starts its own panning
+          // and the swipe never finishes. A scrolling chapter needs the browser's scrolling.
+          page.documentElement.style.touchAction = scrollingRef.current ? "auto" : "none";
+          page.addEventListener("touchstart", swiped.start, { passive: true });
+          page.addEventListener("touchend", swiped.end, { passive: true });
+          page.addEventListener("click", tapped);
         });
         r.on("selected", (cfi: string, contents: Contents) => {
           selectedIn.current = contents;
@@ -400,7 +466,23 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         });
         opened.loaded.navigation.then((nav) => cancelled || setToc(nav.toc));
         highlights.forEach(draw);
-        return r.display(book.cfi);
+        // Page numbers need the whole book measured once; the result is kept in this browser.
+        const saved = `pages:${book.id}`;
+        opened.ready
+          .then(() => {
+            const kept = localStorage.getItem(saved);
+            if (kept) return void opened.locations.load(kept);
+            return opened.locations.generate(1200).then(() => {
+              try {
+                localStorage.setItem(saved, opened.locations.save());
+              } catch {
+                // storage full: it is simply measured again next time
+              }
+            });
+          })
+          .then(() => cancelled || setPages(opened.locations.length()))
+          .catch(() => {}); // no page numbers; the percentage still shows
+        return r.display(book.cfi).then(() => cancelled || setReady(true));
       })
       .catch(() => setBroken(true));
     window.addEventListener("keydown", turn);
@@ -419,6 +501,14 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
     if (rendition.current) paint(rendition.current, prefs);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only these two change the page
   }, [prefs.theme, prefs.fontSize]);
+
+  useEffect(() => {
+    scrollingRef.current = scrolling;
+    const r = rendition.current;
+    if (!r || !ready) return;
+    r.flow(scrolling ? "scrolled-doc" : "paginated"); // lays the current place out again
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of mode re-flows the book
+  }, [scrolling]);
 
   const flat = (items: NavItem[], depth = 0): { item: NavItem; depth: number }[] =>
     items.flatMap((item) => [{ item, depth }, ...flat(item.subitems ?? [], depth + 1)]);
@@ -546,7 +636,14 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       onPanelClose={() => setPanel(null)}
       tone={THEMES[prefs.theme]}
       // "Bookmark" is only the fallback label for bookmarks made outside any chapter.
-      status={chapterName === "Bookmark" ? undefined : chapterName}
+      status={[
+        chapterName === "Bookmark" ? "" : chapterName,
+        at && pages
+          ? `Page ${Number(epub.current?.locations.locationFromCfi(at.cfi) ?? 0) + 1} of ${pages}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       onTurn={(by) => (by < 0 ? rendition.current?.prev() : rendition.current?.next())}
       controls={
         <>
@@ -578,6 +675,14 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
                     ],
               })
             }
+          />
+          <ModeMenu
+            mode={scrolling ? "scroll" : "ltr"}
+            options={[
+              ["ltr", "Turn Pages"],
+              ["scroll", "Scroll Down"],
+            ]}
+            onPick={(mode) => onPatch({ mode })}
           />
           <Appearance prefs={prefs} onPrefs={onPrefs} />
         </>
@@ -615,7 +720,13 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       {broken ? (
         failed
       ) : (
-        <div ref={stage} className="mx-auto h-full w-full max-w-[720px] touch-none px-4" />
+        <>
+          {!ready && <Loading lines />}
+          <div
+            ref={stage}
+            className={`mx-auto h-full w-full max-w-[720px] px-4 ${scrolling ? "" : "touch-none"}`}
+          />
+        </>
       )}
     </Shell>
   );
@@ -825,16 +936,15 @@ function PagedView({ book, onPatch, onClose }: Props) {
             className={`${controlClass} w-[58px] text-center`}
           />
           <span className="text-[12px] text-[#a0a0a0]">of {count}</span>
-          <select
-            aria-label="Page turning"
-            value={mode}
-            onChange={(e) => onPatch({ mode: e.target.value as PageMode })}
-            className={`${controlClass} max-md:w-[110px]`} // narrow enough to stay on the toolbar's one row
-          >
-            <option value="ltr">Left to Right</option>
-            <option value="rtl">Right to Left (Manga)</option>
-            <option value="scroll">Scroll (Webtoon)</option>
-          </select>
+          <ModeMenu
+            mode={mode}
+            options={[
+              ["ltr", "Left to Right"],
+              ["rtl", "Right to Left (Manga)"],
+              ["scroll", "Scroll Down"],
+            ]}
+            onPick={(mode) => onPatch({ mode })}
+          />
           {mode !== "scroll" && (
             // Not on phones: there a swipe or a tap on the page's edge turns it, and the toolbar is full.
             <span className="flex gap-1 max-md:hidden">
@@ -853,6 +963,7 @@ function PagedView({ book, onPatch, onClose }: Props) {
         </>
       }
     >
+      {!broken && !count && <Loading />}
       {broken ? (
         failed
       ) : mode === "scroll" ? (
@@ -879,13 +990,18 @@ function PagedView({ book, onPatch, onClose }: Props) {
               ))}
         </div>
       ) : (
-        <div ref={area} className="flex min-h-0 grow items-center justify-center overflow-hidden bg-[#111]">
+        // The page is laid over the whole area and scaled to fit inside it, so no edge is cut off.
+        <div ref={area} className="relative flex min-h-0 grow touch-pinch-zoom items-center justify-center overflow-hidden bg-[#111]">
           {isPdf ? (
             <canvas ref={canvas} />
           ) : (
             images[page - 1] && (
               // eslint-disable-next-line @next/next/no-img-element -- a blob URL from the archive
-              <img src={images[page - 1]} alt={`Page ${page}`} className="max-h-full max-w-full object-contain" />
+              <img
+                src={images[page - 1]}
+                alt={`Page ${page}`}
+                className="absolute inset-0 size-full object-contain"
+              />
             )
           )}
         </div>
@@ -932,6 +1048,7 @@ function TextView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       tone={THEMES[prefs.theme]}
       controls={<Appearance prefs={prefs} onPrefs={onPrefs} />}
     >
+      {!broken && !blocks && <Loading lines />}
       {broken ? (
         failed
       ) : (

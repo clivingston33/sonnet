@@ -4719,7 +4719,17 @@ export default function Page() {
           // Clear of the phone's notch at the top and of the tab bar (plus home indicator) at the bottom.
           className={`relative flex min-w-0 grow flex-col overflow-x-hidden overflow-y-auto px-[max(1rem,env(safe-area-inset-left))] pt-[max(1.5rem,env(safe-area-inset-top))] md:pt-[52px] md:pr-[10px] md:pl-[43px] ${playingBook ? "pb-[130px] max-md:pb-[calc(250px+env(safe-area-inset-bottom))]" : "pb-[27px] max-md:pb-[calc(90px+env(safe-area-inset-bottom))]"}`}
         >
-          {!loaded ? null : view === "search" ? (
+          {!loaded ? (
+            // Grey covers while the library is fetched, so the page is never just blank.
+            <div role="status" aria-label="Loading your library" className="animate-pulse">
+              <div className="mb-8 h-[42px] w-[180px] rounded-lg bg-white/10 md:mb-[44px]" />
+              <div className="flex flex-wrap gap-x-[27px] gap-y-10 max-md:[zoom:0.86]">
+                {Array.from({ length: 8 }, (_, i) => (
+                  <div key={i} className="h-[282px] w-[188px] rounded-[3px] bg-white/10" />
+                ))}
+              </div>
+            </div>
+          ) : view === "search" ? (
             <Search />
           ) : (
             <>
