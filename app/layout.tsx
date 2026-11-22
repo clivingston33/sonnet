@@ -13,8 +13,8 @@ export const metadata: Metadata = {
   description: "Your library of ebooks, audiobooks and manga",
   // Lets phones and tablets install it to the home screen as its own app.
   manifest: "/manifest.webmanifest",
-  // The browser tab icon is app/icon.svg (picked up by Next); this is the home-screen one.
-  icons: { apple: "/apple-touch-icon.png" },
+  // app/icon.svg is served at /icon.svg; it has to be named here because `icons` replaces Next's own link.
+  icons: { icon: { url: "/icon.svg", type: "image/svg+xml" }, apple: "/apple-touch-icon.png" },
   // "default": the page starts below the phone's status bar instead of running underneath it.
   appleWebApp: { capable: true, title: "Sonnet", statusBarStyle: "default" },
 };
