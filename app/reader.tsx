@@ -92,15 +92,27 @@ type Touched = { changedTouches: ArrayLike<{ clientX: number; clientY: number }>
 function swipe(turn: (by: -1 | 1) => void) {
   let x = 0;
   let y = 0;
+  let live = false; // a touch is down and has not turned the page yet
+  const check = (e: Touched) => {
+    if (!live) return;
+    const dx = e.changedTouches[0].clientX - x;
+    const dy = e.changedTouches[0].clientY - y;
+    if (Math.abs(dx) < 40 || Math.abs(dx) < 2 * Math.abs(dy)) return;
+    live = false;
+    turn(dx < 0 ? 1 : -1);
+  };
   return {
     start: (e: Touched) => {
       x = e.changedTouches[0].clientX;
       y = e.changedTouches[0].clientY;
+      live = true;
     },
+    // Checked while the finger moves as well as when it lifts: some phones take the gesture over
+    // part-way and never report the lift.
+    move: check,
     end: (e: Touched) => {
-      const dx = e.changedTouches[0].clientX - x;
-      const dy = e.changedTouches[0].clientY - y;
-      if (Math.abs(dx) > 40 && Math.abs(dx) > 2 * Math.abs(dy)) turn(dx < 0 ? 1 : -1);
+      check(e);
+      live = false;
     },
   };
 }
@@ -188,7 +200,12 @@ function Shell({
         </h2>
         {controls}
       </header>
-      <div className="relative flex min-h-0 grow" onTouchStart={swiped.start} onTouchEnd={swiped.end}>
+      <div
+        className="relative flex min-h-0 grow"
+        onTouchStart={swiped.start}
+        onTouchMove={swiped.move}
+        onTouchEnd={swiped.end}
+      >
         <div className="relative flex min-w-0 grow flex-col">{children}</div>
         {onTurn &&
           ([-1, 1] as const).map((by) => (
@@ -383,12 +400,28 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       "mix-blend-mode": "normal",
     });
 
+  // Which way the pages run. Right goes forward unless the book is set to read right to left.
+  const rtl = book.mode === "rtl";
+  const rtlRef = useRef(rtl);
+  useEffect(() => {
+    rtlRef.current = rtl;
+  });
+  /** `by` is a side of the page (1 = right): a tap, click, swipe or arrow key towards it. */
+  const turnBy = (by: -1 | 1) => {
+    const r = rendition.current;
+    if (!r) return;
+    if (by * (rtlRef.current ? -1 : 1) > 0) r.next();
+    else r.prev();
+  };
+
   useEffect(() => {
     let cancelled = false;
+    scrollingRef.current = scrolling;
+    setReady(false);
     const turn = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
-      if (e.key === "ArrowLeft") rendition.current?.prev();
-      if (e.key === "ArrowRight") rendition.current?.next();
+      if (e.key === "ArrowLeft") turnBy(-1);
+      if (e.key === "ArrowRight") turnBy(1);
     };
     // Loaded on demand: epub.js touches `window` when imported.
     import("epubjs")
@@ -397,12 +430,13 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         // The URL has no .epub extension to sniff, so say what it is.
         const opened = ePub(src(book), { openAs: "epub" });
         epub.current = opened;
-        // One column, like a page; wide windows get margins instead of a second column.
+        // Pages: one column, like a page; wide windows get margins instead of a second column.
+        // Scrolling: the whole book as one column, chapters following each other.
         const r = opened.renderTo(stage.current!, {
           width: "100%",
           height: "100%",
           spread: "none",
-          flow: scrolling ? "scrolled-doc" : "paginated",
+          ...(scrolling ? { manager: "continuous", flow: "scrolled" } : { flow: "paginated" }),
         });
         rendition.current = r;
         r.themes.default({
@@ -411,6 +445,13 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
             "line-height": "1.6 !important",
           },
           a: { color: "#1c9be6 !important" },
+          // Pictures (and whole pages of them, in comics saved as books) are shrunk to fit, never cropped.
+          "img, svg": {
+            "max-width": "100% !important",
+            "max-height": "96vh !important",
+            height: "auto !important",
+            "object-fit": "contain",
+          },
         });
         paint(r, prefs);
         // (epub.js types getContents as one Contents; it is a list, one per visible section.)
@@ -418,7 +459,9 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           (r.getContents() as unknown as Contents[]).some((c) => String(c.window.getSelection() ?? "").length > 0);
         r.on("keyup", turn); // key presses while focus is inside the book
         // Dragging the handles of a text selection is not a page turn.
-        const swiped = swipe((by) => selecting() || (by < 0 ? r.prev() : r.next()));
+        const swiped = swipe((by) => {
+          if (!selecting()) turnBy(by);
+        });
         // A tap or click on the left or right 45% of the page turns it, like an e-reader.
         let pending: ReturnType<typeof setTimeout>;
         const tapped = (e: MouseEvent) => {
@@ -432,8 +475,8 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           const at = ((((frame - box.left + e.clientX) % box.width) + box.width) % box.width) / box.width;
           const turn = () => {
             if (selecting()) return;
-            if (at < 0.45) r.prev();
-            else if (at > 0.55) r.next();
+            if (at < 0.45) turnBy(-1);
+            else if (at > 0.55) turnBy(1);
           };
           // With a mouse, wait a moment: a double-click selects a word and must not turn the page.
           if (matchMedia("(pointer: coarse)").matches) turn();
@@ -446,6 +489,7 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           // and the swipe never finishes. A scrolling chapter needs the browser's scrolling.
           page.documentElement.style.touchAction = scrollingRef.current ? "auto" : "none";
           page.addEventListener("touchstart", swiped.start, { passive: true });
+          page.addEventListener("touchmove", swiped.move, { passive: true });
           page.addEventListener("touchend", swiped.end, { passive: true });
           page.addEventListener("click", tapped);
         });
@@ -492,23 +536,16 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       rendition.current = null;
       epub.current?.destroy();
       epub.current = null;
+      stage.current?.replaceChildren();
     };
-    // Opens once per book: later prefs/progress updates must not restart the renderer.
+    // Opens once per book and way of reading: later prefs/progress updates must not restart the renderer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book.id]);
+  }, [book.id, scrolling]);
 
   useEffect(() => {
     if (rendition.current) paint(rendition.current, prefs);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only these two change the page
   }, [prefs.theme, prefs.fontSize]);
-
-  useEffect(() => {
-    scrollingRef.current = scrolling;
-    const r = rendition.current;
-    if (!r || !ready) return;
-    r.flow(scrolling ? "scrolled-doc" : "paginated"); // lays the current place out again
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of mode re-flows the book
-  }, [scrolling]);
 
   const flat = (items: NavItem[], depth = 0): { item: NavItem; depth: number }[] =>
     items.flatMap((item) => [{ item, depth }, ...flat(item.subitems ?? [], depth + 1)]);
@@ -644,7 +681,7 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       ]
         .filter(Boolean)
         .join(" · ")}
-      onTurn={(by) => (by < 0 ? rendition.current?.prev() : rendition.current?.next())}
+      onTurn={turnBy}
       controls={
         <>
           {tools.map(([name, icon]) => (
@@ -677,9 +714,10 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
             }
           />
           <ModeMenu
-            mode={scrolling ? "scroll" : "ltr"}
+            mode={book.mode ?? "ltr"}
             options={[
-              ["ltr", "Turn Pages"],
+              ["ltr", "Left to Right"],
+              ["rtl", "Right to Left"],
               ["scroll", "Scroll Down"],
             ]}
             onPick={(mode) => onPatch({ mode })}
@@ -724,7 +762,8 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           {!ready && <Loading lines />}
           <div
             ref={stage}
-            className={`mx-auto h-full w-full max-w-[720px] px-4 ${scrolling ? "" : "touch-none"}`}
+            // The book's own scroller never scrolls (or shows a bar) sideways.
+            className={`mx-auto h-full w-full max-w-[720px] px-4 [&_.epub-container]:!overflow-x-hidden ${scrolling ? "" : "touch-none"}`}
           />
         </>
       )}
@@ -876,7 +915,13 @@ function PagedView({ book, onPatch, onClose }: Props) {
   }, [mode, count]);
   useEffect(() => {
     const turn = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || mode === "scroll") return;
+      if (e.target instanceof HTMLInputElement) return;
+      // Right always goes on in a strip; in pages it follows the reading direction.
+      if (mode === "scroll") {
+        if (e.key === "ArrowLeft") jump(page - 1);
+        if (e.key === "ArrowRight") jump(page + 1);
+        return;
+      }
       if (e.key === "ArrowLeft") go(page - step);
       if (e.key === "ArrowRight") go(page + step);
     };

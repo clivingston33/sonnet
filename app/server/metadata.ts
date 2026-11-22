@@ -103,10 +103,14 @@ async function epub(file: string): Promise<FileMeta> {
     isbn: isbn && isbnOf(decode(isbn.text)),
     cover: coverFile ? await coverFile.async("uint8array") : undefined,
     // Fixed-layout EPUBs are how manga and comics are packaged; comic converters also say so outright.
+    // Others are plain EPUBs with one picture per page: at least as many pictures as pages of text.
     comic:
       metas.some((m) => attr(m.attrs, "property") === "rendition:layout" && /pre-paginated/.test(m.text)) ||
       named("fixed-layout") === "true" ||
       named("book-type") === "comic" ||
+      ((pictures) => pictures >= 20 && pictures >= items.filter((a) => /xhtml/.test(attr(a, "media-type") ?? "")).length)(
+        items.filter((a) => /^image\//.test(attr(a, "media-type") ?? "")).length,
+      ) ||
       undefined,
     rtl: /page-progression-direction\s*=\s*["']rtl/.test(opf) || undefined,
   };
