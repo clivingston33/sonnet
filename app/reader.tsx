@@ -174,6 +174,15 @@ function Shell({
     turnRef.current = onTurn;
   });
   const [swiped] = useState(() => swipe((by) => turnRef.current?.(by)));
+  // Whether a finger was the last thing used. Watched, because what a device says about itself
+  // is not reliable: some touch screens report a mouse.
+  const [touch, setTouch] = useState(() => typeof navigator !== "undefined" && navigator.maxTouchPoints > 0);
+  useEffect(() => {
+    const used = (e: PointerEvent) => setTouch(e.pointerType !== "mouse");
+    window.addEventListener("pointerdown", used, true);
+    return () => window.removeEventListener("pointerdown", used, true);
+  }, []);
+  const sheet = wideEdges === "touch" && touch; // the clear sheet over a book is up
   return (
     <div
       role="dialog"
@@ -210,7 +219,7 @@ function Shell({
         onTouchEnd={swiped.end}
       >
         <div className="relative flex min-w-0 grow flex-col">{children}</div>
-        {wideEdges === "touch" && <div aria-hidden className="absolute inset-0 [@media(pointer:fine)]:hidden" />}
+        {sheet && <div aria-hidden className="absolute inset-0" />}
         {onTurn &&
           ([-1, 1] as const).map((by) => (
             <button
@@ -218,7 +227,7 @@ function Shell({
               aria-label={by < 0 ? "Page to the left" : "Page to the right"}
               onClick={() => onTurn(by)}
               // As wide as the margin beside the 720px page, and never too narrow to tap.
-              className={`group absolute inset-y-0 flex items-center ${wideEdges === true ? "w-[45%]" : "w-[max(44px,calc((100%-760px)/2))]"} ${wideEdges === "touch" ? "[@media(pointer:coarse)]:w-[45%]" : ""} ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
+              className={`group absolute inset-y-0 flex items-center ${wideEdges === true || sheet ? "w-[45%]" : "w-[max(44px,calc((100%-760px)/2))]"} ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
             >
               <Icon
                 name={by < 0 ? "chevronLeft" : "chevronRight"}
@@ -468,7 +477,14 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
             else if (at > 0.55) turnBy(1);
           }, 250);
         };
-        r.hooks.content.register((contents: Contents) => contents.document.addEventListener("click", clicked));
+        r.hooks.content.register((contents: Contents) => {
+          contents.document.addEventListener("click", clicked);
+          // A finger on the book itself (the sheet was down after mouse use): tell the window,
+          // which the frame's own events never reach, so the sheet goes back up.
+          contents.document.addEventListener("pointerdown", (e: PointerEvent) =>
+            window.dispatchEvent(new PointerEvent("pointerdown", { pointerType: e.pointerType })),
+          );
+        });
         r.on("selected", (cfi: string, contents: Contents) => {
           selectedIn.current = contents;
           setSelection({ cfi, text: r.getRange(cfi).toString().trim().slice(0, 500) });

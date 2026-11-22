@@ -7,7 +7,8 @@
  */
 /** Shared building blocks: icons, menus, modal sheet and the class strings that keep the app uniform. */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 const ICONS = {
   x: "M6 6l12 12M18 6 6 18",
@@ -102,62 +103,78 @@ export const DOTS = (
 
 /**
  * Button that toggles a floating menu; any click inside or outside the menu closes it.
- * `floating` places the menu against the window instead of the button's box, for buttons
- * inside a scrolling row that would otherwise cut the menu off; `panelClass` is then only its width.
+ * The menu is placed against the window, not the page: below the button or above it, lined up
+ * with its left or right edge, wherever it fits. It never adds space to scroll and is never cut
+ * off by a scrolling row. Only the width in `panelClass` matters.
  */
 export function Popover({
   label,
   button,
   buttonClass,
   panelClass,
-  floating = false,
   children,
 }: {
   label: string;
   button: ReactNode;
   buttonClass: string;
-  panelClass: string; // position + width
-  floating?: boolean;
+  panelClass: string; // width
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [at, setAt] = useState<React.CSSProperties>();
+  const [at, setAt] = useState<React.CSSProperties>({ visibility: "hidden" });
+  const anchor = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open || !anchor.current || !panel.current) return;
+    const b = anchor.current.getBoundingClientRect();
+    const p = panel.current.getBoundingClientRect();
+    const gap = 4;
+    const edge = 8; // kept clear of the window's edges
+    const below = window.innerHeight - b.bottom - gap - edge;
+    const above = b.top - gap - edge;
+    const down = p.height <= below || below >= above;
+    const maxHeight = Math.max(120, down ? below : above);
+    const left = b.left + p.width <= window.innerWidth - edge ? b.left : b.right - p.width;
+    setAt({
+      left: Math.max(edge, Math.min(left, window.innerWidth - edge - p.width)),
+      top: down ? b.bottom + gap : Math.max(edge, b.top - gap - Math.min(p.height, maxHeight)),
+      right: "auto",
+      bottom: "auto",
+      maxHeight,
+    });
+  }, [open]);
   return (
-    <div
-      className="relative"
-      onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-    >
+    <div className="relative" onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
       <button
+        ref={anchor}
         aria-label={label}
         aria-expanded={open}
-        onClick={(e) => {
-          const box = e.currentTarget.getBoundingClientRect();
-          // Below the button, or above it in the lower half of the window; kept clear of the right edge.
-          setAt({
-            left: Math.max(8, Math.min(box.left, window.innerWidth - 248)),
-            ...(box.top > window.innerHeight / 2
-              ? { bottom: window.innerHeight - box.top + 4 }
-              : { top: box.bottom + 4 }),
-          });
+        onClick={() => {
+          setAt({ visibility: "hidden" }); // measured, then shown in place
           setOpen(!open);
         }}
-        className={`relative ${open ? "z-30" : ""} ${buttonClass}`}
+        className={buttonClass}
       >
         {button}
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div
-            role="menu"
-            onClick={() => setOpen(false)}
-            style={floating ? at : undefined}
-            className={`${floating ? "fixed max-h-[70vh] overflow-y-auto" : "absolute"} z-30 rounded-2xl border border-white/15 bg-[#222] p-[5px] font-sans font-normal text-[#f2f2f2] shadow-2xl ${panelClass}`}
-          >
-            {children}
-          </div>
-        </>
-      )}
+      {open &&
+        // On the page's top layer: a menu inside a zoomed, clipped or shifted part of the page
+        // would be scaled, cut off or misplaced with it.
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[70]" onClick={() => setOpen(false)} />
+            <div
+              ref={panel}
+              role="menu"
+              onClick={() => setOpen(false)}
+              style={at}
+              className={`fixed z-[70] overflow-y-auto rounded-2xl border border-white/15 bg-[#222] p-[5px] font-sans font-normal text-[#f2f2f2] shadow-2xl ${panelClass}`}
+            >
+              {children}
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }

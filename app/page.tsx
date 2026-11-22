@@ -90,8 +90,9 @@ const compact = new Intl.NumberFormat("en", { notation: "compact" }).format;
 type DetailState = { ids: string[]; id: string }; // ids = the list the arrows step through
 
 type Social = {
-  people: { id: number; name: string }[]; // everyone else on the server
-  shelves: { id: number; name: string; bookIds: string[]; mine: boolean }[]; // mine: may rename and delete
+  people: { id: number; name: string }[]; // everyone else in the family
+  // mine: may rename and delete. owned: made it, so chooses who sees it. members: null = whole family.
+  shelves: { id: number; name: string; bookIds: string[]; mine: boolean; owned: boolean; members: number[] | null }[];
   activity: { name: string; book: string; progress?: number; finished?: string; rating?: number }[];
   recs: { book: string; name: string }[];
 };
@@ -141,15 +142,7 @@ type Lib = {
 };
 const LibCtx = createContext<Lib>(null!);
 
-function BookMenu({
-  book,
-  align = "right-0",
-  floating = false,
-}: {
-  book: Book;
-  align?: string;
-  floating?: boolean; // inside a scrolling row: place the menu against the window
-}) {
+function BookMenu({ book }: { book: Book }) {
   const {
     s,
     set,
@@ -170,9 +163,7 @@ function BookMenu({
       label={`Options for ${book.title}`}
       button={DOTS}
       buttonClass="block shrink-0 py-1 text-[#b4b4b4] hover:text-white max-md:p-2"
-      // ponytail: opens downward only; flip upward near the viewport bottom if it gets annoying
-      panelClass={`w-[230px] max-md:w-[270px] ${floating ? "" : `top-5 ${align}`}`}
-      floating={floating}
+      panelClass="w-[230px] max-md:w-[270px]"
     >
       <MenuItem
         icon={book.want ? "minus" : "want"}
@@ -619,7 +610,7 @@ function Timeline({ books }: { books: Book[] }) {
               <Stars book={b} className="size-6" />
             </div>
             <div className="mt-[18px] flex items-center gap-[10px] text-[#a8a8a8]">
-              <BookMenu book={b} align="left-0" />
+              <BookMenu book={b} />
               {!b.opened && <span className="text-[12px]">Not opened yet</span>}
             </div>
           </div>
@@ -852,7 +843,7 @@ function Home() {
               </p>
               <div className="mt-1 flex items-center justify-between text-[13px] text-[#9a9a9a]">
                 {percent(b)}
-                <BookMenu book={b} align="left-0" floating />
+                <BookMenu book={b} />
               </div>
             </div>
           ))}
@@ -2100,33 +2091,30 @@ function Detail({ ids, id }: DetailState) {
             </div>
             <hr className="my-7 border-white/10" />
             <Reviews key={`reviews ${book.id}`} book={book} />
-            <hr className="my-7 border-white/10" />
-            <h3 className="font-serif text-[17px] font-bold">Progress</h3>
-            <div className={`${card} mt-3 flex items-center gap-4`}>
-              <input
-                type="range"
-                aria-label="Progress"
-                min={0}
-                max={100}
-                value={Math.round((book.progress ?? 0) * 100)}
-                disabled={tracked}
-                onChange={(e) =>
-                  patch(book.id, {
-                    progress: Number(e.target.value) / 100,
-                    opened: Date.now(),
-                  })
-                }
-                className="grow accent-[#3b9be0]"
-              />
-              <span className="w-10 text-right text-[13px] font-bold">
-                {Math.round((book.progress ?? 0) * 100)}%
-              </span>
-            </div>
-            <p className="mt-2 text-[12px] text-[#8c8c8c]">
-              {tracked
-                ? "Updates as you read or listen."
-                : "There’s no file for this book here, so drag to record how far you are. Anything between 0 and 100% shows on Home."}
-            </p>
+            {tracked && (
+              <>
+                <hr className="my-7 border-white/10" />
+                <h3 className="font-serif text-[17px] font-bold">Progress</h3>
+                {/* Shown, never set by hand: it is where the reader or player actually got to. */}
+                <div className={`${card} mt-3 flex items-center gap-4`}>
+                  <div
+                    role="progressbar"
+                    aria-label="Progress"
+                    aria-valuenow={Math.round((book.progress ?? 0) * 100)}
+                    className="h-[6px] grow overflow-hidden rounded-full bg-white/10"
+                  >
+                    <div
+                      className="h-full rounded-full bg-[#1c9be6]"
+                      style={{ width: `${(book.progress ?? 0) * 100}%` }}
+                    />
+                  </div>
+                  <span className="w-10 text-right text-[13px] font-bold">
+                    {Math.round((book.progress ?? 0) * 100)}%
+                  </span>
+                </div>
+                <p className="mt-2 text-[12px] text-[#8c8c8c]">Updates as you read or listen.</p>
+              </>
+            )}
             {series.length > 0 &&
               section(
                 "Other Books in This Series",
@@ -2303,14 +2291,13 @@ function FoundMenu({ found }: { found: Found }) {
   const { s, set, preview, toast } = useContext(LibCtx);
   const { mineOf, toggle, add } = useCatalogue();
   const mine = mineOf(found);
-  if (mine) return <BookMenu book={mine} floating />;
+  if (mine) return <BookMenu book={mine} />;
   return (
     <Popover
       label={`Options for ${found.title}`}
       button={DOTS}
       buttonClass="block shrink-0 py-1 text-[#b4b4b4] hover:text-white"
       panelClass="w-[230px]"
-      floating
     >
       <MenuItem icon="want" label="Add to Want to Read" onClick={() => toggle(found)} />
       <MenuItem
@@ -4548,6 +4535,7 @@ export default function Page() {
     onRename: (name: string) => void,
     onDelete: () => void,
     sharing?: { label: string; onClick: () => void }, // share with the family, or stop sharing
+    more?: ReactNode, // further menu items: who a shared shelf is shared with
   ) =>
     renaming === key ? (
       <div key={key} className={`${itemClass} bg-[#737373]`}>
@@ -4576,11 +4564,12 @@ export default function Page() {
               label={`Options for ${name}`}
               button={DOTS}
               buttonClass="block py-[7px] text-[#d0d0d0] hover:text-white"
-              panelClass="top-6 right-0 w-[190px]"
+              panelClass="w-[190px] max-md:w-[250px]"
             >
               <MenuItem icon="pencil" label="Rename" onClick={() => setRenaming(key)} />
               {sharing && <MenuItem icon="people" label={sharing.label} onClick={sharing.onClick} />}
               <MenuItem icon="trash" label="Delete" onClick={onDelete} />
+              {more}
             </Popover>
           </div>
         )}
@@ -4653,6 +4642,34 @@ export default function Page() {
                     if (view === `x:${c.id}`) go(`c:${id}`);
                   },
                 },
+                // Whoever made the shelf picks who sees it: the whole family, or just some of them.
+                c.owned && social.people.length > 0 && (
+                  <>
+                    {MENU_RULE}
+                    <p className="px-[6px] pt-1 pb-[3px] text-[11px] font-bold text-[#777]">Shared With</p>
+                    <MenuItem
+                      label="Everyone in the Family"
+                      checked={!c.members}
+                      onClick={() => lib.socialCall({ action: "shareWith", id: c.id, members: null })}
+                    />
+                    {social.people.map((p) => (
+                      <MenuItem
+                        key={p.id}
+                        label={p.name}
+                        checked={c.members?.includes(p.id) ?? false}
+                        onClick={() =>
+                          lib.socialCall({
+                            action: "shareWith",
+                            id: c.id,
+                            members: c.members?.includes(p.id)
+                              ? c.members.filter((id) => id !== p.id)
+                              : [...(c.members ?? []), p.id],
+                          })
+                        }
+                      />
+                    ))}
+                  </>
+                ),
               ),
             )}
             <Popover
@@ -4664,8 +4681,7 @@ export default function Page() {
                 </>
               }
               buttonClass={`${itemClass} hover:bg-white/5 aria-expanded:bg-white/10`}
-              panelClass="w-[210px]"
-              floating
+              panelClass="w-[210px] max-md:w-[270px]"
             >
               <MenuItem icon="lines" label="Just for Me" onClick={() => lib.newCollection()} />
               <MenuItem
@@ -4679,6 +4695,21 @@ export default function Page() {
                   setRenaming(`x:${made.id}`);
                 }}
               />
+              {/* With more than one other person: a shelf for just one of them. More can be added from its ••• menu. */}
+              {social.people.length > 1 &&
+                social.people.map((p) => (
+                  <MenuItem
+                    key={p.id}
+                    icon="user"
+                    label={`Shared with ${p.name}`}
+                    onClick={async () => {
+                      const made = await lib.socialCall({ action: "newShelf", name: "Untitled Shelf", members: [p.id] });
+                      if (!made) return;
+                      go(`x:${made.id}`);
+                      setRenaming(`x:${made.id}`);
+                    }}
+                  />
+                ))}
             </Popover>
             {tags.length > 0 && <h3 className={headingClass}>Tags</h3>}
             {tags.map((t) => navButton(`t:${t}`, t, "tag"))}

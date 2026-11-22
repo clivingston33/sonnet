@@ -3,6 +3,10 @@ import { db, getBook } from "../../server/db";
 
 type Row = Record<string, unknown>;
 const ids = (json: unknown): string[] => JSON.parse(String(json));
+const numbers = (json: unknown): number[] => JSON.parse(String(json));
+/** A shared shelf is seen by its maker and by the people it is shared with (no list: the whole family). */
+const visible = (shelf: Row, userId: number) =>
+  shelf.owner === userId || !shelf.members || numbers(shelf.members).includes(userId);
 
 /**
  * GET: what the people on this server share with each other: the shared shelves, what the
@@ -14,13 +18,18 @@ export async function GET(req: Request) {
   const family = familyOf(user.account).id;
   const people = familyMembers(family).filter((p) => p.id !== user.id);
   const shelves = db
-    .prepare("SELECT id, name, owner, books FROM shared_shelves WHERE family = ? OR family IS NULL ORDER BY id")
+    .prepare(
+      "SELECT id, name, owner, books, members FROM shared_shelves WHERE family = ? OR family IS NULL ORDER BY id",
+    )
     .all(family)
+    .filter((s) => visible(s, user.id))
     .map((s) => ({
       id: Number(s.id),
       name: String(s.name),
       bookIds: ids(s.books),
       mine: s.owner === user.id || user.admin, // may rename, delete and stop sharing it
+      owned: s.owner === user.id, // may choose who it is shared with
+      members: s.members ? numbers(s.members) : null, // null: the whole family
     }));
 
   const activity: Row[] = [];
@@ -59,18 +68,27 @@ export async function POST(req: Request) {
   const ok = (extra: Row = {}) => Response.json({ ok: true, ...extra });
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 60) : "";
   const family = familyOf(user.account).id;
-  const shelf = db
-    .prepare("SELECT id, owner, books FROM shared_shelves WHERE id = ? AND (family = ? OR family IS NULL)")
+  const found = db
+    .prepare("SELECT id, owner, books, members FROM shared_shelves WHERE id = ? AND (family = ? OR family IS NULL)")
     .get(Number(body.id), family);
+  const shelf = found && visible(found, user.id) ? found : undefined;
   const book = typeof body.book === "string" && getBook(body.book) ? body.book : null;
+  // Who a shelf is shared with: people of this family other than its maker. Not a list: everyone.
+  const members = Array.isArray(body.members)
+    ? JSON.stringify(
+        familyMembers(family)
+          .map((p) => Number(p.id))
+          .filter((id) => id !== user.id && (body.members as unknown[]).includes(id)),
+      )
+    : null;
 
   if (body.action === "newShelf") {
     if (!name) return fail("Give the shelf a name.");
     // `books`: the shelf starts with these (a personal shelf being shared).
     const books = Array.isArray(body.books) ? body.books.filter((b) => typeof b === "string" && getBook(b)) : [];
     const id = db
-      .prepare("INSERT INTO shared_shelves (name, owner, books, family) VALUES (?, ?, ?, ?)")
-      .run(name, user.id, JSON.stringify(books), family).lastInsertRowid;
+      .prepare("INSERT INTO shared_shelves (name, owner, books, family, members) VALUES (?, ?, ?, ?, ?)")
+      .run(name, user.id, JSON.stringify(books), family, members).lastInsertRowid;
     return ok({ id: Number(id) });
   }
   if (body.action === "recommend") {
@@ -93,6 +111,12 @@ export async function POST(req: Request) {
     const list = ids(shelf.books);
     const next = list.includes(book) ? list.filter((b) => b !== book) : [...list, book];
     db.prepare("UPDATE shared_shelves SET books = ? WHERE id = ?").run(JSON.stringify(next), shelf.id);
+    return ok();
+  }
+  // Only whoever made a shelf chooses who sees it.
+  if (body.action === "shareWith") {
+    if (shelf.owner !== user.id) return fail("Only the person who made this shelf can do that.", 403);
+    db.prepare("UPDATE shared_shelves SET members = ? WHERE id = ?").run(members, shelf.id);
     return ok();
   }
   // Renaming and deleting are for whoever made it, and the admin.

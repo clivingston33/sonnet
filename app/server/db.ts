@@ -98,6 +98,7 @@ function open() {
     "users ADD COLUMN pin TEXT", // optional profile PIN, hashed like a password
     "users ADD COLUMN family INTEGER REFERENCES families(id) ON DELETE SET NULL", // accounts only
     "shared_shelves ADD COLUMN family INTEGER REFERENCES families(id) ON DELETE CASCADE",
+    "shared_shelves ADD COLUMN members TEXT", // JSON list of user ids it is shared with; NULL = the whole family
   ])
     try {
       db.exec(`ALTER TABLE ${column}`);
