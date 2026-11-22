@@ -545,3 +545,20 @@ main {
     margin-top: 56px;
   }
 }
+
+/* Questions and their answers, ruled like the feature list. */
+.faq {
+  max-width: 720px;
+  margin-top: 16px;
+}
+.faq div {
+  padding: 20px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.faq h3 {
+  margin: 0;
+}
+.faq p {
+  margin-top: 4px;
+  color: #a0a0a0;
+}

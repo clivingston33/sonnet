@@ -1,0 +1,22 @@
+# Sonnet
+
+> Sonnet is a free, open-source (AGPL-3.0), self-hosted library and reader for ebooks, audiobooks, PDFs and manga. A server on your own computer or home server holds the files; you read and listen in a browser or in the Sonnet desktop app for Windows and macOS.
+
+Key facts:
+
+- Formats read in the browser: EPUB, PDF, CBZ, TXT. Audiobooks: M4B, MP3, M4A, FLAC, OGG, Opus, WAV.
+- Reader: paged or scrolling, right-to-left for manga, dark, sepia and light themes, bookmarks, highlights, notes, search, table of contents.
+- Reading goals, streaks and stats; up to 8 profiles per sign-in; families that share shelves and reviews.
+- Offline: installs to a phone's home screen over HTTPS and keeps chosen books on the device.
+- Install: desktop apps (Windows, macOS), Docker, or Node 24. One SQLite file; no API keys.
+- Not included: native phone apps, OPDS, e-reader sync, MOBI/AZW3/CBR, LDAP or single sign-on.
+- Similar projects: Kavita, Komga, Audiobookshelf, Calibre-Web.
+
+## Pages
+
+- [Home](https://clivingston33.github.io/sonnet/): what Sonnet is, features, screenshots, questions and answers
+- [Docs](https://clivingston33.github.io/sonnet/docs.html): installing, adding books, other devices, people, backups, configuration, troubleshooting
+- [Download](https://clivingston33.github.io/sonnet/download.html): Windows and macOS apps, Docker
+- [Compare](https://clivingston33.github.io/sonnet/compare.html): Sonnet next to Kavita, Komga, Audiobookshelf, Calibre-Web and Jellyfin
+- [Privacy](https://clivingston33.github.io/sonnet/privacy.html): what is stored and what the server sends
+- [Source](https://github.com/clivingston33/sonnet): code, releases and issues on GitHub

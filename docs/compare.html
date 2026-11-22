@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sonnet compared with Kavita, Komga, Audiobookshelf and Calibre-Web</title>
+    <meta name="description" content="How Sonnet, an open-source self-hosted ebook and audiobook reader, compares with Kavita, Komga, Audiobookshelf, Calibre-Web and Jellyfin, and when to pick each." />
+    <link rel="canonical" href="https://clivingston33.github.io/sonnet/compare.html" />
+    <meta name="theme-color" content="#1e1e1e" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Source+Serif+4:wght@700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="site.css" />
+  </head>
+  <body>
+    <header class="top wrap">
+      <a class="brand" href="./"><span class="flower"></span>Sonnet</a>
+      <a href="docs.html">Docs</a>
+      <a href="download.html">Download</a>
+      <a class="gh" href="https://github.com/clivingston33/sonnet" aria-label="Star Sonnet on GitHub"><span class="swap"><span class="mark"></span><span class="icon star"></span><span class="icon star spark"></span></span><span data-stars></span></a>
+    </header>
+
+    <main class="wrap text">
+      <h1>Sonnet and the alternatives</h1>
+      <p>
+        Sonnet is one of several open-source, self-hosted servers for books. They overlap, and the right one
+        depends on what is in your library. This page says plainly where Sonnet fits and where another
+        project is the better choice.
+      </p>
+
+      <h2>In one table</h2>
+      <div class="table">
+        <table>
+          <tr><th>Project</th><th>Centres on</th><th>Pick it when</th></tr>
+          <tr>
+            <td><b>Sonnet</b></td>
+            <td>Ebooks, audiobooks, PDFs and manga in one library, with reading goals</td>
+            <td>You want one app for reading and listening, for a household, with almost no setup</td>
+          </tr>
+          <tr>
+            <td><a href="https://www.kavitareader.com">Kavita</a></td>
+            <td>Manga, comics and ebooks</td>
+            <td>Your library is mixed comics and books and you want a mature reader for both</td>
+          </tr>
+          <tr>
+            <td><a href="https://komga.org">Komga</a></td>
+            <td>Comics and manga</td>
+            <td>Your library is mostly comics and manga</td>
+          </tr>
+          <tr>
+            <td><a href="https://www.audiobookshelf.org">Audiobookshelf</a></td>
+            <td>Audiobooks and podcasts</td>
+            <td>You mostly listen, and want native phone apps</td>
+          </tr>
+          <tr>
+            <td><a href="https://github.com/janeczku/calibre-web">Calibre-Web</a></td>
+            <td>A web interface for a Calibre library</td>
+            <td>You already manage your ebooks in Calibre, or need to send books to an e-reader</td>
+          </tr>
+          <tr>
+            <td><a href="https://jellyfin.org">Jellyfin</a></td>
+            <td>Films, TV and music</td>
+            <td>Books are a small corner of a video library</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>What Sonnet does differently</h2>
+      <ul>
+        <li><b>One library for reading and listening.</b> EPUB, PDF, CBZ and TXT open in the built-in reader, and M4B, MP3, M4A, FLAC, OGG, Opus and WAV play in the same app.</li>
+        <li><b>Goals and stats.</b> Daily and yearly goals, streaks, and charts of reading time, which count on their own while a book is open.</li>
+        <li><b>Profiles and families.</b> Up to 8 profiles on one sign-in, and families that share shelves, recommendations and reviews.</li>
+        <li><b>Nothing to set up.</b> The desktop app can keep a private library on your computer with no server at all, or host it for your network with one click.</li>
+        <li><b>No API keys.</b> Covers, ratings, genres and series are looked up without registering anywhere.</li>
+      </ul>
+
+      <h2>Where the others are ahead</h2>
+      <p>Sonnet is new. Be aware of what it does not have yet:</p>
+      <ul>
+        <li><b>No native phone apps.</b> On phones Sonnet installs from the browser to the home screen.</li>
+        <li><b>No OPDS feed and no e-reader sync</b>, so it does not send books to a Kindle or Kobo, or feed apps such as KOReader.</li>
+        <li><b>Fewer formats.</b> No MOBI, AZW3 or CBR; convert those first.</li>
+        <li><b>Username and password only.</b> No LDAP or single sign-on.</li>
+        <li><b>A young project</b> with one developer, where the others have years of use behind them.</li>
+      </ul>
+
+      <h2>Try it</h2>
+      <p>Sonnet is free and open source under the AGPL-3.0 licence.</p>
+      <div class="buttons">
+        <a class="button slide" href="download.html"><span class="icon down"></span>Download<span class="icon arrow"></span></a>
+        <a class="button quiet" href="docs.html">Read the Docs</a>
+      </div>
+      <p class="note">
+        Descriptions of other projects are our own short summaries. If one is wrong or out of date,
+        <a href="https://github.com/clivingston33/sonnet/issues">tell us</a> and we will fix it.
+      </p>
+    </main>
+
+    <footer class="wrap">
+      <div class="foot">
+        <div class="about">
+          <a class="brand" href="./"><span class="flower"></span>Sonnet</a>
+          <p>A self-hosted library and reader for ebooks, audiobooks, PDFs and manga.</p>
+        </div>
+        <div>
+          <b>Sonnet</b>
+          <a href="download.html">Download</a>
+          <a href="docs.html">Docs</a>
+          <a href="privacy.html">Privacy</a>
+          <a href="compare.html">Compare</a>
+        </div>
+        <div>
+          <b>Guides</b>
+          <a href="docs.html#docker">Run with Docker</a>
+          <a href="docs.html#books">Adding books</a>
+          <a href="docs.html#devices">Other devices</a>
+          <a href="docs.html#troubleshooting">Troubleshooting</a>
+        </div>
+        <div>
+          <b>Project</b>
+          <a href="https://github.com/clivingston33/sonnet">Source on GitHub</a>
+          <a href="https://github.com/clivingston33/sonnet/releases">Releases</a>
+          <a href="https://github.com/clivingston33/sonnet/issues">Report a problem</a>
+          <a href="https://github.com/clivingston33/sonnet/blob/main/LICENSE">Licence</a>
+        </div>
+      </div>
+      <p class="legal"><span>© 2026 Caleb Livingston</span><span>Free software under the AGPL-3.0 licence</span></p>
+    </footer>
+    <script src="site.js"></script>
+  </body>
+</html>
