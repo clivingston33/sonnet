@@ -1,7 +1,7 @@
 {
   "name": "sonnet-desktop",
   "productName": "Sonnet",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Sonnet for the desktop: the app that opens a library, and the server for a household.",
   "author": "clivingston33",
   "license": "AGPL-3.0-only",

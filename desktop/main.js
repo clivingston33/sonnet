@@ -10,7 +10,7 @@ const { app, BrowserWindow, Menu, WebContentsView, dialog, ipcMain, nativeTheme,
 const dgram = require("node:dgram");
 const fs = require("node:fs");
 const path = require("node:path");
-const { isSonnet, networks, startServer } = require("./local-server");
+const { DOWNLOAD, isSonnet, networks, newerVersion, setWantsUpdates, startServer, wantsUpdates } = require("./local-server");
 
 // Which of the two this is: decided when it is built (server-build.json), or `--server` in development.
 if (require("./package.json").sonnetServer || process.argv.includes("--server")) return require("./server-app");
@@ -184,7 +184,32 @@ ipcMain.handle("pick-folder", async (e) => {
   const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
   return picked.canceled ? null : picked.filePaths[0];
 });
+// The connect page's switch for the notice at the top of the window: asked with no argument, set with one.
+ipcMain.handle("updates", async (e, on) => {
+  if (!local(e.senderFrame.url)) return false;
+  if (on !== undefined) {
+    setWantsUpdates(on);
+    showStrip(await newerVersion());
+  }
+  return wantsUpdates();
+});
 app.on("quit", () => localServer?.kill());
+
+/**
+ * Draws the strip at the top of the window. With a `version` newer than this app's it says so,
+ * in the middle, clear of the window buttons at either end; clicking it opens the download page.
+ */
+function showStrip(version) {
+  const notice = version
+    ? `<style>a{-webkit-app-region:no-drag;color:#a0a0a0;text-decoration:none}a:hover{color:#fff}</style>
+       <a href="${DOWNLOAD}" target="_blank">Version ${version} is available</a>`
+    : "";
+  win.loadURL(
+    `data:text/html;charset=utf-8,${encodeURIComponent(
+      `<body style="margin:0;height:${BAR}px;display:flex;align-items:center;justify-content:center;background:${BACKGROUND};font:12px system-ui,sans-serif;-webkit-app-region:drag">${notice}`,
+    )}`,
+  );
+}
 
 function createWindow() {
   // No title bar from the system: the top strip is the app's colour, with only the system's
@@ -200,9 +225,12 @@ function createWindow() {
   });
   // The window's own page is nothing but that strip. The pages get a view of their own below it:
   // drawn over them, it would cover the top of the sidebar and of the reader's toolbar.
-  win.loadURL(
-    `data:text/html,<body style="margin:0;background:${encodeURIComponent(BACKGROUND)};-webkit-app-region:drag">`,
-  );
+  showStrip(null);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url === DOWNLOAD) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  newerVersion().then(showStrip);
   view = new WebContentsView({ webPreferences: { preload: path.join(__dirname, "preload.js") } });
   view.setBackgroundColor(BACKGROUND);
   win.contentView.addChildView(view);

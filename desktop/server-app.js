@@ -6,7 +6,7 @@
 const { app, Menu, Tray, clipboard, nativeImage, shell } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const { isSonnet, networks, startServer } = require("./local-server");
+const { DOWNLOAD, isSonnet, networks, newerVersion, setWantsUpdates, startServer, wantsUpdates } = require("./local-server");
 
 app.setName("Sonnet Server"); // its own data folder, apart from the Sonnet app's private library
 // One below the Sonnet app's private library (main.js), so both can run on one computer.
@@ -15,6 +15,8 @@ const HERE = `http://localhost:${PORT}`;
 let tray;
 let server = null;
 let quitting = false;
+/** A version newer than this one, once GitHub has been asked; null when there is none. */
+let update = null;
 
 function run() {
   server = startServer(PORT, true);
@@ -27,7 +29,11 @@ function run() {
 
 function menu() {
   const login = app.getLoginItemSettings().openAtLogin;
+  const told = wantsUpdates();
   return Menu.buildFromTemplate([
+    ...(update
+      ? [{ label: `Version ${update} Is Available…`, click: () => shell.openExternal(DOWNLOAD) }, { type: "separator" }]
+      : []),
     { label: "Open Sonnet", click: () => shell.openExternal(HERE) },
     { type: "separator" },
     { label: "Other devices connect to:", enabled: false },
@@ -43,6 +49,15 @@ function menu() {
       checked: login,
       click: () => app.setLoginItemSettings({ openAtLogin: !login }),
     },
+    {
+      label: "Tell Me About New Versions",
+      type: "checkbox",
+      checked: told,
+      click: async () => {
+        setWantsUpdates(!told);
+        update = await newerVersion();
+      },
+    },
     { label: "Quit Sonnet Server", click: () => app.quit() },
   ]);
 }
@@ -56,6 +71,7 @@ else {
     app.dock?.hide(); // macOS: a menu bar item only
     const fresh = !fs.existsSync(path.join(app.getPath("userData"), "data", "library.db"));
     run();
+    newerVersion().then((version) => (update = version));
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 }));
     tray.setToolTip("Sonnet Server");
     // Built when it is opened, so the addresses and the tick are current.

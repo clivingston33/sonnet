@@ -1,6 +1,7 @@
 /** What the two desktop apps share: running the bundled server, and telling whether an address is a Sonnet server. */
 const { app, net } = require("electron");
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -44,4 +45,38 @@ function startServer(port, shared) {
   });
 }
 
-module.exports = { isSonnet, networks, startServer };
+/** Where a newer version is fetched from by hand: the apps never install anything themselves. */
+const DOWNLOAD = "https://clivingston33.github.io/sonnet/download.html";
+
+// Whether to ask GitHub for the newest version. On unless it was turned off; kept apart from the
+// choice of library, which is rewritten whole.
+const prefsFile = () => path.join(app.getPath("userData"), "prefs.json");
+function wantsUpdates() {
+  try {
+    return JSON.parse(fs.readFileSync(prefsFile(), "utf8")).updates !== false;
+  } catch {
+    return true; // never chosen
+  }
+}
+const setWantsUpdates = (on) => fs.writeFileSync(prefsFile(), JSON.stringify({ updates: !!on }));
+
+/**
+ * The newest release's version, e.g. "0.2.0", when it is newer than this app; otherwise null,
+ * as it is when the check is off or GitHub doesn't answer. One request, and nothing is sent in it.
+ */
+async function newerVersion() {
+  if (!wantsUpdates()) return null;
+  try {
+    const res = await net.fetch("https://api.github.com/repos/clivingston33/sonnet/releases/latest", {
+      signal: AbortSignal.timeout(8000),
+    });
+    const latest = String((await res.json()).tag_name).replace(/^v/, "");
+    // Shown in the app's own pages, so only ever digits and dots.
+    if (!/^\d+(\.\d+)*$/.test(latest)) return null;
+    return latest.localeCompare(app.getVersion(), undefined, { numeric: true }) > 0 ? latest : null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { DOWNLOAD, isSonnet, networks, newerVersion, setWantsUpdates, startServer, wantsUpdates };

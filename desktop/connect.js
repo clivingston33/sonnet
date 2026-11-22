@@ -15,6 +15,11 @@ lan.append(
 );
 if (query.get("lan")) lan.append(Object.assign(document.createElement("b"), { textContent: query.get("lan") }), ".");
 
+// Whether the app asks GitHub for the newest version when it opens. It never installs one itself.
+const updates = document.querySelector("#updates input");
+window.sonnetDesktop.updates().then((on) => (updates.checked = on));
+updates.addEventListener("change", () => window.sonnetDesktop.updates(updates.checked));
+
 /** Runs one of the choices; on success the window is already loading the library. */
 async function go(button, busy, action) {
   const label = button.textContent;
