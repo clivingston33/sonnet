@@ -4215,6 +4215,18 @@ function SignIn({ onDone }: { onDone: () => void }) {
   return (
     <main className="flex min-h-full items-center justify-center p-4">
       <div className="w-[440px] max-w-full rounded-[28px] bg-[#2c2c2e] p-8 shadow-2xl">
+        {globalThis.sonnetDesktop && (
+          // In the app: back to where the library was chosen, e.g. to pick a server after starting one here.
+          <button
+            type="button"
+            // Called bare: the bridge can't be handed the click event.
+            onClick={() => globalThis.sonnetDesktop?.changeServer()}
+            className="mb-5 -ml-1 flex items-center gap-1 text-[13px] font-bold text-[#a0a0a0] hover:text-white"
+          >
+            <Icon name="chevronLeft" className="size-4" />
+            Back
+          </button>
+        )}
         <Logo className="size-9" />
         <h1 className="mt-3 font-serif text-[28px] font-bold">
           {registering ? "Create your account" : mode === "forgot" ? "Reset your password" : "Welcome back"}
@@ -4366,16 +4378,6 @@ function SignIn({ onDone }: { onDone: () => void }) {
           <p className="mt-4 text-center text-[12px] text-[#8c8c8c]">
             New accounts are turned off here. Ask the server’s admin to let you in.
           </p>
-        )}
-        {globalThis.sonnetDesktop && (
-          <button
-            // Called bare: the bridge can't be handed the click event.
-            onClick={() => globalThis.sonnetDesktop?.changeServer()}
-            className="mx-auto mt-4 block text-[13px] text-[#a0a0a0] hover:text-white"
-          >
-            {/* A new library on this computer has nobody to sign in as: an existing account is on its server. */}
-            {options.first ? "Already have an account? Connect to its server" : "Change library"}
-          </button>
         )}
         <a
           href={DOCS}
