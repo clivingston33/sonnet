@@ -20,6 +20,7 @@ import {
   MenuItem,
   Popover,
   Sheet,
+  ask,
   closeClass,
   controlClass,
   fieldClass,
@@ -86,6 +87,15 @@ const EMPTY: Record<string, [string, string]> = {
 const newestFirst = (a: Book, b: Book) => b.added.localeCompare(a.added);
 const bySeriesIndex = (a: Book, b: Book) => (a.seriesIndex ?? 1e9) - (b.seriesIndex ?? 1e9);
 const compact = new Intl.NumberFormat("en", { notation: "compact" }).format;
+/** On a book that is only on your lists: there is no file on the server to open. */
+const NOT_OWNED = (
+  <span
+    data-tip="On your lists only. There is no file to read or listen to yet."
+    className="shrink-0 rounded-full bg-[#4a3a1c] px-[7px] py-[2px] text-[11px] font-bold leading-[14px] tracking-wide whitespace-nowrap text-[#ffd9a0]"
+  >
+    NOT OWNED
+  </span>
+);
 
 type DetailState = { ids: string[]; id: string }; // ids = the list the arrows step through
 
@@ -269,15 +279,16 @@ function BookMenu({ book }: { book: Book }) {
           <MenuItem
             icon="trash"
             label="Remove…"
-            onClick={() => {
-              if (
-                !confirm(
-                  book.file
-                    ? `Remove “${book.title}”? Its file is deleted from the server, for everyone.`
-                    : `Remove “${book.title}” from your lists?`,
-                )
-              )
-                return;
+            onClick={async () => {
+              const gone = await ask({
+                title: `Remove “${book.title}”?`,
+                text: book.file
+                  ? "Its file is deleted from the server, for everyone."
+                  : "It is taken off your lists.",
+                action: "Remove",
+                danger: true,
+              });
+              if (gone === null) return;
               set((prev) => ({
                 books: prev.books.filter((b) => b.id !== book.id),
                 collections: prev.collections.map((c) => ({
@@ -360,7 +371,7 @@ function CloudButton({ book }: { book: Book }) {
             ? `Remove download of ${book.title}`
             : `Download ${book.title} for offline reading`
       }
-      title={busy ? "Downloading…" : here ? "On this device. Click to remove." : "Download for offline reading"}
+      data-tip={busy ? "Downloading…" : here ? "On this device. Click to remove." : "Download for offline reading"}
       disabled={busy}
       onClick={() => keepOffline(book)}
       className={`block hover:text-white max-md:p-1 ${busy ? "animate-pulse" : ""}`}
@@ -495,11 +506,14 @@ function Grid({ books, group = false }: { books: Book[]; group?: boolean }) {
             <CoverButton book={b} w={188} ids={ids} />
             <div className="mt-[10px] flex h-5 items-center gap-[6px] text-[#a8a8a8]">
               {b.kind === "audiobook" && <Icon name="headphones" className="size-4" />}
-              {!b.opened && !b.finished && (
-                <span className="rounded-full bg-[#1f3b68] px-[7px] py-[2px] text-[11px] font-bold leading-[14px] tracking-wide text-[#cfe0ff]">
-                  NEW
-                </span>
-              )}
+              {!b.file
+                ? NOT_OWNED
+                : !b.opened &&
+                  !b.finished && (
+                    <span className="rounded-full bg-[#1f3b68] px-[7px] py-[2px] text-[11px] font-bold leading-[14px] tracking-wide text-[#cfe0ff]">
+                      NEW
+                    </span>
+                  )}
               <span className="grow" />
               <CloudButton book={b} />
               <BookMenu book={b} />
@@ -542,6 +556,7 @@ function List({ books, community }: { books: Book[]; community: boolean }) {
                 </span>
               )}
             </p>
+            {!b.file && <div className="mt-[6px] flex">{NOT_OWNED}</div>}
             <div className="mt-[6px]">
               {community || !b.finished ? (
                 <CommunityRating book={b} />
@@ -611,7 +626,7 @@ function Timeline({ books }: { books: Book[] }) {
             </div>
             <div className="mt-[18px] flex items-center gap-[10px] text-[#a8a8a8]">
               <BookMenu book={b} />
-              {!b.opened && <span className="text-[12px]">Not opened yet</span>}
+              {!b.file ? NOT_OWNED : !b.opened && <span className="text-[12px]">Not opened yet</span>}
             </div>
           </div>
         </div>
@@ -838,7 +853,7 @@ function Home() {
               >
                 <Cover book={b} w={188} />
               </div>
-              <p className="mt-3 truncate text-[15px]" title={b.title}>
+              <p className="mt-3 truncate text-[15px]" data-tip={b.title}>
                 {b.title}
               </p>
               <div className="mt-1 flex items-center justify-between text-[13px] text-[#9a9a9a]">
@@ -1105,6 +1120,7 @@ function Result({ book, w, ids }: { book: Book; w: number; ids: string[] }) {
           {info?.rating
             ? ` • ★ ${info.rating.toFixed(1)} (${compact(info.ratings ?? 0)})`
             : null}
+          {!book.file && <> {NOT_OWNED}</>}
         </p>
       </div>
     </button>
@@ -1326,6 +1342,7 @@ function Family() {
             placeholder="6 digits"
             inputMode="numeric"
             pattern="\d{6}"
+            data-tip="Six digits"
             maxLength={6}
             required
             className={`${fieldClass} !h-[30px] !w-[110px] text-center`}
@@ -1335,7 +1352,13 @@ function Family() {
             <button
               type="button"
               onClick={async () => {
-                if (!confirm("Leave this family? You get a new family of your own with a new code.")) return;
+                const leave = await ask({
+                  title: "Leave this family?",
+                  text: "You get a new family of your own with a new code.",
+                  action: "Leave",
+                  danger: true,
+                });
+                if (leave === null) return;
                 setError(await authCall({ action: "leaveFamily" }));
                 location.reload();
               }}
@@ -1379,9 +1402,37 @@ function Profiles() {
                 onClick={async () => {
                   const mine = p.id === user.id;
                   const pin =
-                    mine && !p.locked ? prompt("Choose a PIN of 4 to 8 digits for this profile.") : "";
+                    mine && !p.locked
+                      ? await ask({
+                          title: "Set a PIN",
+                          text: "Choose a PIN of 4 to 8 digits for this profile.",
+                          action: "Set PIN",
+                          input: {
+                            type: "password",
+                            inputMode: "numeric",
+                            pattern: "\\d{4,8}",
+                            maxLength: 8,
+                            required: true,
+                            autoComplete: "off",
+                            "aria-label": "PIN",
+                            ...{ "data-tip": "4 to 8 digits" },
+                          },
+                        })
+                      : "";
                   if (pin === null) return;
-                  const password = mine ? undefined : prompt("Enter the account password to clear this PIN.");
+                  const password = mine
+                    ? undefined
+                    : await ask({
+                        title: `Clear ${p.name}’s PIN?`,
+                        text: "Enter the account password to clear this PIN.",
+                        action: "Clear PIN",
+                        input: {
+                          type: "password",
+                          required: true,
+                          autoComplete: "current-password",
+                          "aria-label": "Account password",
+                        },
+                      });
                   if (password === null) return;
                   setError(await authCall({ action: "setPin", id: p.id, pin, password }));
                   load();
@@ -1394,7 +1445,13 @@ function Profiles() {
             {p.id !== user.id && p.id !== user.account && (
               <button
                 onClick={async () => {
-                  if (!confirm(`Remove ${p.name}? Their shelves, ratings and progress are deleted.`)) return;
+                  const gone = await ask({
+                    title: `Remove ${p.name}?`,
+                    text: "Their shelves, ratings and progress are deleted.",
+                    action: "Remove",
+                    danger: true,
+                  });
+                  if (gone === null) return;
                   setError(await authCall({ action: "removeProfile", id: p.id }));
                   load();
                 }}
@@ -1475,9 +1532,21 @@ function ProfilePicker({
         {profiles.map((p) => (
           <button
             key={p.id}
-            onClick={() => {
+            onClick={async () => {
               if (p.id === user.id) return onClose();
-              const pin = p.locked ? prompt(`Enter ${p.name}’s PIN.`) : undefined;
+              const pin = p.locked
+                ? await ask({
+                    title: `Enter ${p.name}’s PIN`,
+                    action: "Continue",
+                    input: {
+                      type: "password",
+                      inputMode: "numeric",
+                      required: true,
+                      autoComplete: "off",
+                      "aria-label": "PIN",
+                    },
+                  })
+                : undefined;
               if (pin !== null) onPick(p.id, pin);
             }}
             className="group flex w-[120px] flex-col items-center gap-3"
@@ -1598,7 +1667,18 @@ function Users() {
           <div className="flex gap-2">
             <button
               onClick={async () => {
-                const password = prompt(`New password for ${u.name} (at least 8 characters).`);
+                const password = await ask({
+                  title: `New password for ${u.name}`,
+                  text: "At least 8 characters.",
+                  action: "Set Password",
+                  input: {
+                    type: "password",
+                    minLength: 8,
+                    required: true,
+                    autoComplete: "new-password",
+                    "aria-label": "New password",
+                  },
+                });
                 if (!password) return;
                 const failed = await authCall({ action: "setPassword", id: u.id, password });
                 toast(failed ? "Not Changed" : "Saved", failed ?? `${u.name}’s password was changed.`);
@@ -1611,8 +1691,13 @@ function Users() {
             {u.id !== user.account && (
               <button
                 onClick={async () => {
-                  if (!confirm(`Remove ${u.name}? Their shelves, ratings and progress are deleted.`))
-                    return;
+                  const gone = await ask({
+                    title: `Remove ${u.name}?`,
+                    text: "Their shelves, ratings and progress are deleted.",
+                    action: "Remove",
+                    danger: true,
+                  });
+                  if (gone === null) return;
                   await authCall({ action: "removeUser", id: u.id });
                   load();
                 }}
@@ -1803,7 +1888,14 @@ function SettingsSheet({
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     e.target.value = "";
-                    if (!file || !confirm(`Replace everything on this server with ${file.name}?`)) return;
+                    if (!file) return;
+                    const replace = await ask({
+                      title: "Restore this backup?",
+                      text: `Everything on this server is replaced with ${file.name}. Anything changed since that backup is lost.`,
+                      action: "Restore",
+                      danger: true,
+                    });
+                    if (replace === null) return;
                     const res = await fetch("/api/admin", { method: "PUT", body: file }).catch(() => null);
                     if (res?.ok) return location.reload();
                     toast("Not Restored", (await res?.json().catch(() => null))?.error ?? "The server couldn’t be reached.");
@@ -2004,7 +2096,10 @@ function Detail({ ids, id }: DetailState) {
                 </p>
                 <div className={`${card} mt-5 flex items-center justify-between gap-4`}>
                   <div>
-                    <p className="text-[16px] font-bold">{KIND_LABEL[book.kind]}</p>
+                    <p className="flex items-center gap-2 text-[16px] font-bold">
+                      {KIND_LABEL[book.kind]}
+                      {!book.file && NOT_OWNED}
+                    </p>
                     <p className="text-[13px] text-[#c8c8c8]">
                       {[
                         `Added ${new Date(book.added).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}`,
@@ -2427,6 +2522,7 @@ function FoundResult({ found, w, className = "" }: { found: Found; w: number; cl
             : found.year
               ? ` • ${found.year}`
               : ""}
+          {mine && !mine.file && <> {NOT_OWNED}</>}
         </p>
       </div>
     </button>
@@ -2711,7 +2807,7 @@ function FoundBooks({
         {books.map((f) => (
           <div key={f.key} className="w-[120px] shrink-0 text-[13px] leading-[18px]">
             {art(f, 120)}
-            <p className="mt-2 truncate font-semibold" title={f.title}>
+            <p className="mt-2 truncate font-semibold" data-tip={f.title}>
               {f.title}
             </p>
             <div className="flex items-center justify-between gap-2 text-[#9a9a9a]">
@@ -2960,7 +3056,7 @@ function CoverButton({ book, w, ids }: { book: Book; w: number; ids: string[] })
       role="button"
       tabIndex={0}
       aria-label={book.title}
-      title="Double-click to open"
+      data-tip={book.file ? "Double-click to open" : undefined}
       // A finger has no double-click: on touch screens one tap opens the book.
       onClick={() => matchMedia("(pointer: coarse)").matches && open()}
       onDoubleClick={open}
@@ -3333,7 +3429,7 @@ function Player({ book, onClose }: { book: Book; onClose: () => void }) {
                 audio.current!.volume = next;
                 setVolume(next);
               }}
-              className="block w-full accent-white"
+              className="block w-full"
             />
           </Popover>
           <button aria-label="Close player" onClick={onClose} className={`${round} text-[#a0a0a0]`}>
@@ -3456,7 +3552,7 @@ function Stats() {
                   {days.map((d) => (
                     <div
                       key={dayKey(d.date)}
-                      title={describe(d)}
+                      data-tip={describe(d)}
                       className={`grow rounded-t ${d.seconds >= goal ? "bg-[#1c9be6]" : "bg-white/30"}`}
                       style={{ height: height(d.seconds) }}
                     />
@@ -3734,7 +3830,7 @@ function ImportPanel({
         <ul className="mt-3 max-h-[240px] overflow-y-auto text-[13px]">
           {items.map((item, i) => (
             <li key={i} className="flex items-center gap-3 py-1">
-              <span className="min-w-0 grow truncate" title={item.name}>
+              <span className="min-w-0 grow truncate" data-tip={item.name}>
                 {item.name}
               </span>
               <span
@@ -3891,7 +3987,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
               pattern: "\\d{6}",
               maxLength: 6,
               placeholder: "6 digits, from a family member’s Settings",
-              title: "Six digits",
+              ...{ "data-tip": "Six digits" },
             })}
           {sent ? (
             <>
@@ -3923,7 +4019,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
             <div className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
               <label
                 className="flex items-center gap-2"
-                title="Stay signed in on this device for 30 days"
+                data-tip="Stay signed in on this device for 30 days"
               >
                 <input type="checkbox" name="remember" defaultChecked />
                 Remember me
@@ -4474,11 +4570,17 @@ export default function Page() {
   const editingBook = s.books.find((b) => b.id === editing);
   const readingBook = s.books.find((b) => b.id === readingId && b.file);
 
-  const deleteShelf = (id: string) => {
+  const deleteShelf = async (id: string) => {
     if (sharedShelf && String(sharedShelf.id) === id) {
-      if (confirm(`Delete the shared shelf “${sharedShelf.name}” for everyone? Its books stay in the library.`))
-        lib.socialCall({ action: "deleteShelf", id: sharedShelf.id }).then(() => setView("all"));
-      return;
+      const gone = await ask({
+        title: `Delete “${sharedShelf.name}”?`,
+        text: "The shared shelf is deleted for everyone. Its books stay in the library.",
+        action: "Delete",
+        danger: true,
+      });
+      if (gone === null) return;
+      await lib.socialCall({ action: "deleteShelf", id: sharedShelf.id });
+      return setView("all");
     }
     set((prev) => ({ collections: prev.collections.filter((c) => c.id !== id) }));
     if (view === `c:${id}`) setView("all");
@@ -4624,8 +4726,13 @@ export default function Page() {
                 c.mine,
                 (name) => lib.socialCall({ action: "renameShelf", id: c.id, name }),
                 async () => {
-                  if (!confirm(`Delete the shared shelf “${c.name}” for everyone? Its books stay in the library.`))
-                    return;
+                  const gone = await ask({
+                    title: `Delete “${c.name}”?`,
+                    text: "The shared shelf is deleted for everyone. Its books stay in the library.",
+                    action: "Delete",
+                    danger: true,
+                  });
+                  if (gone === null) return;
                   await lib.socialCall({ action: "deleteShelf", id: c.id });
                   if (view === `x:${c.id}`) setView("all");
                 },

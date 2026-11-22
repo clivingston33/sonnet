@@ -110,3 +110,61 @@ input[type="number"]::-webkit-inner-spin-button,
 input[type="search"]::-webkit-search-cancel-button {
   appearance: none;
 }
+
+/* The volume slider: a thin track and a white thumb, the same in every browser. */
+input[type="range"] {
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.2);
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #fff;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* A text box grows with what is typed (where the browser can), so it needs no resize handle. */
+textarea {
+  resize: none;
+  field-sizing: content;
+}
+/* A field the browser filled in keeps the app's colours, not the browser's pale blue or yellow. */
+input:-webkit-autofill {
+  -webkit-text-fill-color: #f2f2f2;
+  caret-color: #f2f2f2;
+  transition: background-color 99999s;
+}
+/* Edge adds its own eye to password fields; the app has one. */
+input::-ms-reveal {
+  display: none;
+}
+::selection {
+  background: rgba(28, 155, 230, 0.45);
+}
+/* One focus ring everywhere, in place of each browser's own. In a layer so `outline-none` still wins. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid #1c9be6;
+    outline-offset: 2px;
+  }
+}

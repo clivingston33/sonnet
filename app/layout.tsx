@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
+import { Overlays } from "./ui";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 const sourceSerif = Source_Serif_4({
@@ -35,7 +36,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       // dvh, not 100%: the height that is actually visible while a phone browser's bars are showing.
       className={`${inter.variable} ${sourceSerif.variable} h-dvh antialiased`}
     >
-      <body className="h-full font-sans">{children}</body>
+      <body className="h-full font-sans">
+        {children}
+        <Overlays />
+      </body>
     </html>
   );
 }

@@ -7,7 +7,14 @@
  */
 /** Shared building blocks: icons, menus, modal sheet and the class strings that keep the app uniform. */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 
 const ICONS = {
@@ -270,3 +277,159 @@ export const closeClass =
 /** Small secondary button, select or number field. */
 export const controlClass =
   "h-[30px] shrink-0 rounded-lg bg-white/10 px-3 text-[13px] font-bold hover:bg-white/15 [&>option]:bg-[#2e2e2e]";
+/** Round button that goes ahead with something that can't be undone. */
+export const dangerClass =
+  "rounded-full bg-[#ff453a] text-[13px] font-bold text-white hover:bg-[#ff5c52]";
+
+type Ask = {
+  title: string;
+  text?: string;
+  action: string; // label of the button that goes ahead
+  danger?: boolean;
+  input?: InputHTMLAttributes<HTMLInputElement>; // also asks for a value
+};
+type Asked = Ask & { done: (value: string | null) => void };
+let openAsk: (asked: Asked) => void = () => {};
+/**
+ * The app's own confirm() and prompt(). Resolves to null when cancelled, otherwise to what was
+ * typed ("" when there is no `input`).
+ */
+export const ask = (a: Ask) => new Promise<string | null>((done) => openAsk({ ...a, done }));
+
+/**
+ * Mounted once: draws what the browser would otherwise draw in its own style. The `ask` dialog,
+ * the hover tip of anything with `data-tip`, and the message under a form field that isn't valid.
+ * All in the browser's top layer, so they sit above every sheet and menu.
+ */
+export function Overlays() {
+  const [asked, setAsked] = useState<Asked | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const tip = useRef<HTMLDivElement>(null);
+  const close = (value: string | null) => {
+    asked?.done(value);
+    setAsked(null);
+  };
+  useEffect(() => {
+    if (asked && !dialog.current?.open) dialog.current?.showModal();
+  }, [asked]);
+  useEffect(() => {
+    openAsk = setAsked;
+    const t = tip.current!;
+    let timer = 0;
+    let pinned = false; // an error stays until the field is edited; hovering elsewhere leaves it
+    const hide = () => {
+      clearTimeout(timer);
+      pinned = false;
+      if (t.matches(":popover-open")) t.hidePopover();
+    };
+    /** `r`: what the tip sits under (or over, when there is no room below). */
+    const show = (r: DOMRect, text: string, error: boolean) => {
+      hide();
+      pinned = error;
+      t.textContent = text;
+      t.dataset.error = String(error);
+      t.showPopover(); // shown again each time, so it lands above a dialog opened since
+      const w = t.offsetWidth;
+      const h = t.offsetHeight;
+      t.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - 8 - w))}px`;
+      t.style.top = `${r.bottom + 6 + h > innerHeight ? r.top - 6 - h : r.bottom + 6}px`;
+    };
+    let over: HTMLElement | null | undefined;
+    let quiet: HTMLElement | null | undefined = null; // has had its tip, or was clicked: no tip until the pointer returns
+    const onMove = (e: MouseEvent) => {
+      if (pinned) return;
+      const el = (e.target as Element).closest?.<HTMLElement>("[data-tip]");
+      if (el !== over) {
+        over = el;
+        quiet = null;
+        hide();
+      }
+      if (!el || el === quiet) return;
+      clearTimeout(timer);
+      // Like the browser's own tooltip: once the pointer has rested, just below it.
+      timer = window.setTimeout(() => {
+        quiet = el;
+        if (el.isConnected) show(new DOMRect(e.clientX, e.clientY, 0, 16), el.dataset.tip!, false);
+      }, 500);
+    };
+    const onDown = () => {
+      quiet = over;
+      hide();
+    };
+    const onInvalid = (e: Event) => {
+      e.preventDefault(); // no browser bubble
+      if (pinned) return; // only the first field that is wrong
+      const el = e.target as HTMLInputElement;
+      el.focus();
+      show(
+        el.getBoundingClientRect(),
+        (el.validity.patternMismatch && el.dataset.tip) || el.validationMessage,
+        true,
+      );
+    };
+    const events = [
+      ["mousemove", onMove],
+      ["invalid", onInvalid],
+      ["input", hide],
+      ["pointerdown", onDown],
+      ["scroll", hide],
+      ["mouseleave", hide],
+    ] as const;
+    for (const [name, fn] of events) document.addEventListener(name, fn as EventListener, true);
+    return () => {
+      for (const [name, fn] of events) document.removeEventListener(name, fn as EventListener, true);
+    };
+  }, []);
+  return (
+    <>
+      {asked && (
+        <dialog
+          ref={dialog}
+          aria-label={asked.title}
+          onCancel={() => close(null)}
+          onClick={(e) => e.target === e.currentTarget && close(null)} // the dimmed page around it
+          // Escape closes only this, not the sheet underneath.
+          onKeyDown={(e) => e.key === "Escape" && e.stopPropagation()}
+          className="m-auto w-[400px] max-w-[calc(100%-32px)] rounded-[28px] bg-[#2c2c2e] font-sans text-[#f2f2f2] shadow-2xl backdrop:bg-black/40 backdrop:backdrop-blur-sm"
+        >
+          <form
+            className="p-8"
+            onSubmit={(e) => {
+              e.preventDefault();
+              close(String(new FormData(e.currentTarget).get("value") ?? ""));
+            }}
+          >
+            <h2 className="font-serif text-[22px] font-bold">{asked.title}</h2>
+            {asked.text && (
+              <p className="mt-2 text-[14px] leading-[20px] text-[#a0a0a0]">{asked.text}</p>
+            )}
+            {asked.input && (
+              <input {...asked.input} name="value" className={`${fieldClass} mt-5`} />
+            )}
+            {/* Cancel comes first, so it has the focus: Enter never deletes anything by accident. */}
+            <div className="mt-7 flex gap-3">
+              <button
+                type="button"
+                onClick={() => close(null)}
+                className="h-[36px] grow basis-0 rounded-full bg-white/10 text-[13px] font-bold hover:bg-white/15"
+              >
+                Cancel
+              </button>
+              <button
+                className={`${asked.danger ? dangerClass : primaryClass} h-[36px] grow basis-0`}
+              >
+                {asked.action}
+              </button>
+            </div>
+          </form>
+        </dialog>
+      )}
+      <div
+        ref={tip}
+        popover="manual"
+        role="tooltip"
+        className="pointer-events-none inset-auto max-w-[280px] rounded-lg border border-white/15 bg-[#222] px-2 py-1 font-sans text-[12px] leading-[16px] text-[#f2f2f2] shadow-2xl data-[error=true]:text-[#ff6b61]"
+      />
+    </>
+  );
+}
