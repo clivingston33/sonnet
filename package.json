@@ -1,11 +1,17 @@
 {
-  "name": "ebooks",
+  "name": "sonnet",
+  "description": "A self-hosted library and reader for ebooks, audiobooks, PDFs and manga.",
+  "keywords": ["self-hosted", "ebook-reader", "audiobooks", "epub", "pdf", "manga", "nextjs", "sqlite", "pwa"],
+  "repository": "github:clivingston33/sonnet",
+  "license": "AGPL-3.0-only",
+  "engines": { "node": ">=24" },
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test app/reading.test.ts app/sync.test.ts app/server/metadata.test.ts"
   },
   "dependencies": {
     "epubjs": "^0.3.93",

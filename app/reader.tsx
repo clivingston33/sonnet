@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Book as EpubBook, Contents, Location, NavItem, Rendition } from "epubjs";
 import type Section from "epubjs/types/section";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
-import type { Book, Highlight, Mark, PageMode, ReaderPrefs } from "./sync";
+import type { Book, Highlight, PageMode, ReaderPrefs } from "./sync";
 import {
   EmptyState,
   Icon,
@@ -478,6 +478,23 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           }, 250);
         };
         r.hooks.content.register((contents: Contents) => {
+          // Some books hide headings by parking them far off the page (`left: -999em`), and each
+          // chapter is as many pages as its content is wide: that made dozens of blank pages.
+          // Such rules are hidden in place instead, still there for screen readers.
+          // ponytail: top-level rules only; walk @media blocks too if a book hides them there.
+          for (const sheet of contents.document.styleSheets) {
+            let rules: CSSRule[] = [];
+            try {
+              rules = [...sheet.cssRules];
+            } catch {
+              // a stylesheet from another site can't be read; its rules are left alone
+            }
+            for (const rule of rules) {
+              const style = (rule as CSSStyleRule).style;
+              if (style?.position !== "absolute" || !(parseFloat(style.left) <= -100)) continue;
+              style.cssText += "left:auto;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)";
+            }
+          }
           contents.document.addEventListener("click", clicked);
           // A finger on the book itself (the sheet was down after mouse use): tell the window,
           // which the frame's own events never reach, so the sheet goes back up.

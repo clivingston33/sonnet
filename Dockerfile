@@ -1,4 +1,4 @@
-# Built and run by Coolify on the home server; locally: `docker compose up --build`.
+# Run with `docker compose up --build`.
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package*.json ./

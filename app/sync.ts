@@ -3,7 +3,7 @@
 export type Kind = "book" | "audiobook" | "pdf" | "comic";
 
 /** Best-match record from the online lookup. `v` is the lookup's version: older records are refreshed once. */
-export type Info = {
+type Info = {
   rating?: number;
   ratings?: number;
   year?: number;
@@ -65,10 +65,10 @@ export type Book = {
   highlights?: Highlight[];
 };
 
-export type Collection = { id: string; name: string; bookIds: string[] };
-export type Layout = "Grid" | "List";
+type Collection = { id: string; name: string; bookIds: string[] };
+type Layout = "Grid" | "List";
 export const SORTS = ["Recent", "Title", "Author", "Manual"] as const;
-export type Sort = (typeof SORTS)[number];
+type Sort = (typeof SORTS)[number];
 export type ReaderPrefs = { fontSize: number; theme: "dark" | "sepia" | "light" };
 
 export type Saved = {

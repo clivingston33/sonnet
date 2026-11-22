@@ -2,8 +2,8 @@
 # Sends the committed code to the home server and restarts the app there.
 # The app lives in Proxmox container 105 ("sonnet"): code in /opt/books, data in /srv/books.
 set -euo pipefail
-HOST=root@192.0.2.1
-CT=105
+HOST=${DEPLOY_HOST:?set DEPLOY_HOST to the Proxmox host, e.g. root@proxmox.lan}
+CT=${DEPLOY_CT:-105}
 
 # The source folders are replaced, not overwritten, so files deleted from the repo go away too.
 git archive HEAD | ssh "$HOST" "pct exec $CT -- bash -c 'rm -rf /opt/books/app /opt/books/public && tar -x -C /opt/books'"

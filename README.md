@@ -1,77 +1,121 @@
+<div align="center">
+
+<img src="public/icon-192.png" width="88" alt="Sonnet icon">
+
 # Sonnet
 
-A self-hosted library for ebooks, audiobooks and PDFs.
+A self-hosted library and reader for ebooks, audiobooks, PDFs and manga.
+
+<img src="docs/screenshots/library.webp" alt="The library, a grid of book covers">
+
+</div>
+
+Sonnet is one Next.js app with one SQLite file. Import your files and read or listen in the
+browser, on any device, with progress kept on your own server.
+
+## Features
+
+- **Reads everything in the browser.** EPUB, PDF, CBZ and plain text, plus M4B, MP3, M4A, FLAC,
+  OGG, Opus and WAV audiobooks. Multi-file audiobooks merge into one book with chapters.
+- **A reader with the usual tools.** Paged or scrolling, right-to-left for manga, dark, sepia and
+  light themes, bookmarks, highlights, search and a table of contents.
+- **Metadata without API keys.** Covers, ratings, genres and series come from Open Library,
+  Wikidata, Audible's public catalogue and AniList.
+- **Goals and stats.** Daily and yearly goals, streaks, and charts of reading time.
+- **Profiles and families.** One sign-in holds up to 8 profiles, each with its own shelves,
+  progress and optional PIN. Accounts that share a family code see each other's shared shelves,
+  recommendations and reviews.
+- **Offline.** Installs to a phone or tablet's home screen, keeps chosen books on the device, and
+  sends progress made offline when the server is back.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/home.webp" alt="Home, with the current books and reading goals"></td>
+    <td><img src="docs/screenshots/stats.png" alt="Reading stats, with streaks and a chart of the last 30 days"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/detail.webp" alt="A book's details, ratings and reviews"></td>
+    <td><img src="docs/screenshots/search.webp" alt="Search results from the online catalogue"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/reader.png" alt="The reader showing a chapter of Frankenstein"></td>
+    <td align="center"><img src="docs/screenshots/mobile.webp" width="230" alt="Home on a phone"></td>
+  </tr>
+</table>
 
 ## Run
+
+With Docker:
+
+```
+docker compose up --build
+```
+
+Or with Node 24 (the app uses the built-in `node:sqlite`):
 
 ```
 npm install
 npm run build
-npm start            # http://localhost:3000
+npm start
 ```
 
-The first account created becomes the admin. Other people create their own accounts from the
-sign-in page until the admin turns that off under Settings → Account. Requires Node 24 (it
-uses the built-in `node:sqlite`).
+Open http://localhost:3000. The first account created becomes the admin. Other people create
+their own accounts from the sign-in page until the admin turns that off under
+Settings → Account.
 
-Forgotten passwords: the server sends no email. "Forgot password?" creates an 8-digit code,
-valid for 30 minutes, that the admin sees under Settings → Account and that is printed to the
-server log (`Password reset code for …`). An admin who is locked out reads it from the log.
-The admin can also set anyone's password under Settings → Account. Eight wrong passwords lock
-an account for 15 minutes.
+Offline reading and installing to a home screen only work over HTTPS or on localhost, so put the
+server behind a reverse proxy such as Caddy, or Tailscale, to use them from other devices.
 
-Online data needs no keys: Open Library (books, covers, ratings, genres), Wikidata (series),
-Audible's public catalogue (audiobook narrators and series) and AniList (manga and manhwa).
-Adult manga (hentai) is never shown: AniList flags it and it is always excluded. Books are not
-filtered, and neither is anything you upload.
-Reviews are written by the people on the server and stored in its database.
+## Configuration
 
-Profiles: one sign-in can hold up to 8 profiles (Settings → Account), each with its own shelves,
-progress and stats, chosen from a "Who's reading?" screen. A profile may set a PIN; signing in
-with the account password always opens the account's own profile.
-
-With Docker: `docker compose up --build`.
-
-Home server: the app runs in Proxmox container 105 (`sonnet`, 192.0.2.10, systemd unit
-`books.service`, port 3000), with code in `/opt/books` and data in `/srv/books` (on the host:
-`/mnt/data/books`). Like Jellyfin, it is published by adding a public hostname to the
-existing Cloudflare tunnel: `sonnet.example.com` → `http://192.0.2.10:3000`.
-`./deploy.sh` sends the committed code there, rebuilds and restarts.
-Cloudflare refuses requests over 100 MB on the free plan, so imports are sent in 64 MB pieces
-(`app/api/import/route.ts`); large audiobooks upload from anywhere.
-
-## Data
-
-| Folder | Holds | Setting |
+| Variable | Default | Holds |
 | --- | --- | --- |
-| `data/` | `library.db` (accounts, shelves, ratings, progress, reading time) and cover images | `DATA_DIR` |
-| `library/` | the imported book and audio files | `LIBRARY_DIR` |
+| `DATA_DIR` | `data/` | `library.db` (accounts, shelves, ratings, progress, reading time) and cover images |
+| `LIBRARY_DIR` | `library/` | the imported book and audio files |
+| `MAX_UPLOAD_MB` | `2048` | the largest file that can be imported |
 
-Back up both. Settings → Library → Download Backup (admin) gives one zip of the database and
-covers, and Restore puts one back; the book files in `library/` are not in it and are copied
-by hand. Importing a file that is already there is skipped, and Tidy Now re-files older books
-with the current rules. `MAX_UPLOAD_MB` caps a single upload (default 2048).
+Back up both folders. Settings → Library → Download Backup (admin) gives one zip of the database
+and covers, and Restore puts one back. The book files in `library/` are not in it and are copied
+by hand.
 
-Families: every account has a six-digit family code (Settings → Account). Someone who enters it
-when creating their account, or in their own settings, joins that family. Shared shelves,
+Imports are sent in 64 MB pieces, so large audiobooks upload through proxies that cap request
+size, such as Cloudflare's free tunnel. Importing a file that is already there is skipped, and
+Tidy Now re-files older books with the current rules.
+
+## How it behaves
+
+**Passwords.** The server sends no email. "Forgot password?" creates an 8-digit code, valid for
+30 minutes, that the admin sees under Settings → Account and that is printed to the server log
+(`Password reset code for …`). An admin who is locked out reads it from the log. The admin can
+also set anyone's password. Eight wrong passwords lock an account for 15 minutes.
+
+**What is shared.** Books are shared by everyone on the server. Shelves, ratings, progress,
+bookmarks, highlights, goals, reading time and any details a person edits (title, author,
+description, series, tags) belong to that person's profile. Signing in with the account password
+always opens the account's own profile.
+
+**Families.** Every account has a six-digit family code (Settings → Account). Someone who enters
+it when creating their account, or in their own settings, joins that family. Shared shelves,
 recommendations and the "what others are reading" list on Home stay inside a family. A profile
-can turn off sharing its reading under Settings → Account.
+can turn off sharing its reading.
 
-Search shows what is new and trending to a new profile; once it has started, finished, rated or
+**Search.** A new profile sees what is new and trending. Once it has started, finished, rated or
 wanted three books with a known genre, the rows follow its favourite genres and author.
 
-Offline reading: the app installs to a phone or tablet's home screen, and the cloud button on a
-book keeps it on the device (`public/sw.js`, `app/offline.ts`). Progress made offline is queued
-and sent when the server is back. Browsers only allow this over HTTPS or on localhost, so put
-the server behind HTTPS (a reverse proxy such as Caddy, or Tailscale) to use it from other
-devices.
+**Content.** Adult manga is never shown: AniList flags it and it is always excluded. Books are
+not filtered, and neither is anything you upload. Reviews are written by the people on the
+server and stored in its database.
 
-Books are shared by everyone on the server. Shelves, ratings, progress, bookmarks, highlights,
-goals, reading time and any details a person edits (title, author, description, series, tags)
-belong to that person's profile.
-
-## Tests
+## Development
 
 ```
-node --test app/reading.test.ts app/sync.test.ts app/server/metadata.test.ts
+npm run dev
+npm test
 ```
+
+`deploy.sh` is the script I use to push to my own Proxmox container:
+`DEPLOY_HOST=root@your-proxmox-host ./deploy.sh` (`DEPLOY_CT` picks the container, default 105).
+
+## License
+
+[AGPL-3.0](LICENSE) © Caleb Livingston

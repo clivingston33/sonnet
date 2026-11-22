@@ -111,7 +111,7 @@ export async function manga(filter: string, count = 18): Promise<Manga[]> {
  * Catalogues name one series several ways ("Dune", "Dune Chronicles", "Red Rising Trilogy");
  * dropping the generic last word makes them agree.
  */
-export function seriesName<T extends string | undefined>(name: T): T {
+function seriesName<T extends string | undefined>(name: T): T {
   const short = name?.replace(/\s+\(?(series|trilogy|saga|cycle|chronicles|sequence|novels|books)\)?$/i, "").trim();
   return (short || name) as T;
 }

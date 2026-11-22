@@ -68,7 +68,7 @@ export async function sendFile(req: Request, target: string, type: string | unde
 }
 
 /** The image type of `data` by its first bytes, or undefined when it isn't a supported image. */
-export function imageExt(data: Uint8Array) {
+function imageExt(data: Uint8Array) {
   const hex = Buffer.from(data.subarray(0, 12)).toString("hex");
   if (hex.startsWith("ffd8ff")) return "jpg";
   if (hex.startsWith("89504e47")) return "png";

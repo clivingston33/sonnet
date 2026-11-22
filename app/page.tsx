@@ -1887,8 +1887,7 @@ function Blurb({ text }: { text: string }) {
 }
 
 function Detail({ ids, id }: DetailState) {
-  const { s, setDetail, toggleWant, toggleFinished, setView, patch, play, read } =
-    useContext(LibCtx);
+  const { s, setDetail, toggleWant, toggleFinished, setView, play, read } = useContext(LibCtx);
 
   const book = s.books.find((b) => b.id === id);
   if (!book) return null; // removed from the library while open
