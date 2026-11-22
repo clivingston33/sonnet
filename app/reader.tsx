@@ -106,6 +106,17 @@ function swipe(turn: (by: -1 | 1) => void) {
 }
 
 /**
+ * Applies the page colours and text size to an open EPUB. Set directly on the page, because
+ * epub.js's named themes do not come back once another has been selected after them.
+ */
+function paint(r: Rendition, prefs: Props["prefs"]) {
+  const { bg, fg } = THEMES[prefs.theme];
+  r.themes.override("color", fg, true);
+  r.themes.override("background", bg, true);
+  r.themes.fontSize(`${prefs.fontSize}%`);
+}
+
+/**
  * The reading screen, laid out like an e-reader: the page fills the window, the toolbar
  * stays out of sight until the pointer goes to the top, and the bottom line says where you are.
  */
@@ -119,6 +130,7 @@ function Shell({
   tone = THEMES.dark,
   status,
   onTurn,
+  wideEdges,
   children,
 }: {
   book: Book;
@@ -130,6 +142,7 @@ function Shell({
   tone?: { bg: string; fg: string }; // page colours
   status?: string; // bottom-left line, e.g. the chapter
   onTurn?: (by: -1 | 1) => void; // given: the page's side margins turn the page
+  wideEdges?: boolean; // on phones the left and right thirds of the page turn it (not over selectable text)
   children: ReactNode;
 }) {
   useEffect(() => {
@@ -184,7 +197,7 @@ function Shell({
               aria-label={by < 0 ? "Page to the left" : "Page to the right"}
               onClick={() => onTurn(by)}
               // As wide as the margin beside the 720px page, and never too narrow to tap.
-              className={`group absolute inset-y-0 flex w-[max(44px,calc((100%-760px)/2))] items-center ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
+              className={`group absolute inset-y-0 flex w-[max(44px,calc((100%-760px)/2))] items-center ${wideEdges ? "max-md:w-[32%]" : ""} ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
             >
               <Icon
                 name={by < 0 ? "chevronLeft" : "chevronRight"}
@@ -240,7 +253,7 @@ function Appearance({ prefs, onPrefs }: Pick<Props, "prefs" | "onPrefs">) {
       label="Text size and theme"
       button={<Icon name="text" className="size-5" />}
       buttonClass={iconButton}
-      panelClass="top-8 right-0 w-[170px]"
+      panelClass="top-8 right-0 w-[170px] max-md:w-[240px]"
     >
       <MenuItem
         label={`Larger text (${prefs.fontSize}%)`}
@@ -336,18 +349,19 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         // One column, like a page; wide windows get margins instead of a second column.
         const r = opened.renderTo(stage.current!, { width: "100%", height: "100%", spread: "none" });
         rendition.current = r;
-        for (const [name, { bg, fg }] of Object.entries(THEMES))
-          r.themes.register(name, {
-            body: {
-              color: `${fg} !important`,
-              background: `${bg} !important`,
-              "font-family": "Bookerly, Georgia, 'Times New Roman', serif !important",
-              "line-height": "1.6 !important",
-            },
-            a: { color: "#1c9be6 !important" },
-          });
-        r.themes.select(prefs.theme);
-        r.themes.fontSize(`${prefs.fontSize}%`);
+        r.themes.default({
+          body: {
+            "font-family": "Bookerly, Georgia, 'Times New Roman', serif !important",
+            "line-height": "1.6 !important",
+          },
+          a: { color: "#1c9be6 !important" },
+        });
+        paint(r, prefs);
+        // Sideways drags belong to page turning: without this a phone starts its own panning and
+        // the swipe never finishes.
+        r.hooks.content.register((contents: Contents) => {
+          contents.document.documentElement.style.touchAction = "none";
+        });
         r.on("keyup", turn); // key presses while focus is inside the book
         // The book is in its own frame, so swipes on the text have to be picked up there.
         const swiped = swipe((by) => {
@@ -359,6 +373,16 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         });
         r.on("touchstart", swiped.start);
         r.on("touchend", swiped.end);
+        // On touch screens a tap on the left or right third of the page turns it, like an e-reader.
+        r.on("click", (e: MouseEvent) => {
+          if (!matchMedia("(pointer: coarse)").matches || (e.target as Element).closest?.("a")) return;
+          const view = (e.target as Element).ownerDocument.defaultView;
+          if (!view?.getSelection()?.isCollapsed) return;
+          // The frame holds every page side by side; this is where the tap landed in the window.
+          const x = (view.frameElement?.getBoundingClientRect().left ?? 0) + e.clientX;
+          if (x < window.innerWidth * 0.32) r.prev();
+          else if (x > window.innerWidth * 0.68) r.next();
+        });
         r.on("selected", (cfi: string, contents: Contents) => {
           selectedIn.current = contents;
           setSelection({ cfi, text: r.getRange(cfi).toString().trim().slice(0, 500) });
@@ -392,8 +416,8 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
   }, [book.id]);
 
   useEffect(() => {
-    rendition.current?.themes.select(prefs.theme);
-    rendition.current?.themes.fontSize(`${prefs.fontSize}%`);
+    if (rendition.current) paint(rendition.current, prefs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these two change the page
   }, [prefs.theme, prefs.fontSize]);
 
   const flat = (items: NavItem[], depth = 0): { item: NavItem; depth: number }[] =>
@@ -591,7 +615,7 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       {broken ? (
         failed
       ) : (
-        <div ref={stage} className="mx-auto h-full w-full max-w-[720px] px-4" />
+        <div ref={stage} className="mx-auto h-full w-full max-w-[720px] touch-none px-4" />
       )}
     </Shell>
   );
@@ -756,6 +780,7 @@ function PagedView({ book, onPatch, onClose }: Props) {
       tone={{ bg: "#111", fg: "#e6e6e6" }}
       status={count ? `Page ${page} of ${count}` : undefined}
       onTurn={mode === "scroll" ? undefined : (by) => go(page + by * step)}
+      wideEdges
       onPanelClose={() => setListing(false)}
       panel={
         listing

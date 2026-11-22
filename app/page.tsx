@@ -1031,7 +1031,7 @@ function Home() {
       )}
       {activity.length > 0 && (
         <Section title="What Others Are Reading">
-          <div className="grid gap-x-[25px] md:mr-[33px] md:grid-cols-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-x-[25px] md:mr-[33px] md:grid-cols-2">
             {activity.map(({ book, name, progress, finished, rating }) => (
               <div key={name + book.id + (finished ?? "")} className="border-b border-white/10 py-[2px]">
                 <button
@@ -2629,7 +2629,8 @@ function FoundBooks({
     };
   }, [query]);
 
-  const columns = `grid gap-x-[25px] md:grid-cols-2 ${className ?? ""}`;
+  // minmax(0,…): a long title is cut short instead of stretching the column past the screen.
+  const columns = `grid grid-cols-[minmax(0,1fr)] gap-x-[25px] md:grid-cols-[repeat(2,minmax(0,1fr))] ${className ?? ""}`;
   if (found === null) {
     if (wrap) return null;
     // Grey shapes where the books will be, so the page doesn't jump when they arrive.
@@ -4716,7 +4717,7 @@ export default function Page() {
 
         <main
           // Clear of the phone's notch at the top and of the tab bar (plus home indicator) at the bottom.
-          className={`relative flex min-w-0 grow flex-col overflow-y-auto px-[max(1rem,env(safe-area-inset-left))] pt-[max(1.5rem,env(safe-area-inset-top))] md:pt-[52px] md:pr-[10px] md:pl-[43px] ${playingBook ? "pb-[130px] max-md:pb-[calc(250px+env(safe-area-inset-bottom))]" : "pb-[27px] max-md:pb-[calc(90px+env(safe-area-inset-bottom))]"}`}
+          className={`relative flex min-w-0 grow flex-col overflow-x-hidden overflow-y-auto px-[max(1rem,env(safe-area-inset-left))] pt-[max(1.5rem,env(safe-area-inset-top))] md:pt-[52px] md:pr-[10px] md:pl-[43px] ${playingBook ? "pb-[130px] max-md:pb-[calc(250px+env(safe-area-inset-bottom))]" : "pb-[27px] max-md:pb-[calc(90px+env(safe-area-inset-bottom))]"}`}
         >
           {!loaded ? null : view === "search" ? (
             <Search />
