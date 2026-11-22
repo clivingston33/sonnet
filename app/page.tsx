@@ -100,7 +100,13 @@ const NOT_OWNED = (
 
 declare global {
   /** Set by the desktop app (desktop/preload.js), which can switch to another library; absent in a browser. */
-  var sonnetDesktop: { changeServer: () => void } | undefined;
+  var sonnetDesktop:
+    | {
+        changeServer: () => void;
+        /** Only when the library is on this computer: asks for a folder, resolves to its path. */
+        pickFolder?: () => Promise<string | null>;
+      }
+    | undefined;
 }
 
 type DetailState = { ids: string[]; id: string }; // ids = the list the arrows step through
@@ -289,7 +295,7 @@ function BookMenu({ book }: { book: Book }) {
               const gone = await ask({
                 title: `Remove “${book.title}”?`,
                 text: book.file
-                  ? "Its file is deleted from the server, for everyone."
+                  ? "It is removed for everyone. An uploaded file is deleted with it; a file in one of your library folders stays where it is."
                   : "It is taken off your lists.",
                 action: "Remove",
                 danger: true,
@@ -1211,6 +1217,202 @@ function SettingRow({
   );
 }
 
+type FolderState = { folders: string[]; scan: { running: boolean; added: number } };
+
+/**
+ * Admin: the folders on the server's own disk whose books make up the library, as in Jellyfin.
+ * `onChange` hears when the library has changed under the page: a scan is over and added that
+ * many books, or (null) a folder was removed and its books with it.
+ */
+function LibraryFolders({ onChange }: { onChange?: (added: number | null) => void }) {
+  const [state, setState] = useState<FolderState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const call = async (body?: Record<string, unknown>) => {
+    const res = await fetch("/api/folders", body && { method: "POST", body: JSON.stringify(body) }).catch(
+      () => null,
+    );
+    const data = await res?.json().catch(() => null);
+    setError(res?.ok ? null : (data?.error ?? "Can’t reach the server."));
+    if (res?.ok) setState(data);
+    return !!res?.ok;
+  };
+  useEffect(() => {
+    call();
+  }, []);
+  // A scan runs on the server; ask how it is going until it is over.
+  const running = state?.scan.running;
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (running) {
+      wasRunning.current = true;
+      const timer = setTimeout(call, 1500);
+      return () => clearTimeout(timer);
+    }
+    if (wasRunning.current && state) onChange?.(state.scan.added);
+    wasRunning.current = false;
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps -- re-armed by each answer
+  const add = async (path: string) => !!path.trim() && call({ action: "add", path });
+  return (
+    <>
+      {state?.folders.map((folder) => (
+        <SettingRow key={folder} title={folder.split(/[\\/]/).filter(Boolean).pop() ?? folder} text={folder}>
+          <button
+            onClick={async () => {
+              const gone = await ask({
+                title: "Remove this folder?",
+                text: "Its books leave the library, with everyone’s progress and ratings for them. The files themselves stay in the folder.",
+                action: "Remove",
+                danger: true,
+              });
+              if (gone !== null && (await call({ action: "remove", path: folder }))) onChange?.(null);
+            }}
+            className={`${controlClass} text-[#ff6b61]`}
+          >
+            Remove
+          </button>
+        </SettingRow>
+      ))}
+      <SettingRow
+        title="Add a folder"
+        text="A folder on the computer the server runs on. Sonnet reads the books where they are and picks up new ones; it never changes or deletes your files."
+      >
+        <form
+          className="flex flex-wrap gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.currentTarget;
+            if (await add(String(new FormData(form).get("path")))) form.reset();
+          }}
+        >
+          <input
+            name="path"
+            aria-label="Folder path"
+            placeholder="D:\Books or /media/books"
+            required
+            spellCheck={false}
+            className={`${fieldClass} !h-[30px] !w-[230px]`}
+          />
+          {globalThis.sonnetDesktop?.pickFolder && (
+            <button
+              type="button"
+              onClick={async () => add((await globalThis.sonnetDesktop?.pickFolder?.()) ?? "")}
+              className={controlClass}
+            >
+              Choose…
+            </button>
+          )}
+          <button className={controlClass}>Add</button>
+        </form>
+      </SettingRow>
+      {!!state?.folders.length && (
+        <SettingRow
+          title="Scan folders"
+          text={
+            running
+              ? `Looking through your folders… ${state.scan.added} added so far.`
+              : "Look for new books now. Sonnet also looks when the library is opened."
+          }
+        >
+          <button disabled={running} onClick={() => call({ action: "scan" })} className={`${controlClass} disabled:opacity-60`}>
+            {running ? "Scanning…" : "Scan Now"}
+          </button>
+        </SettingRow>
+      )}
+      {error && (
+        <p role="alert" className="px-5 pb-3 text-[13px] text-[#ff6b61]">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * First-time setup, shown once to the admin of a new server, as Jellyfin's wizard is: after the
+ * admin account come the folders the books are in, then who else may use the library.
+ */
+function Setup() {
+  const { user } = useContext(LibCtx);
+  // null: no setup to do. `code`: the admin's family code, for the people about to join.
+  const [info, setInfo] = useState<{ addresses: string[]; code: string } | null>(null);
+  const [step, setStep] = useState(0);
+  const [signups, setSignups] = useState(true);
+  useEffect(() => {
+    if (!user.admin) return;
+    fetch("/api/auth")
+      .then((res) => res.json())
+      .then(
+        (body) =>
+          body.setup && setInfo({ addresses: body.addresses ?? [], code: body.family?.code ?? "" }),
+      )
+      .catch(() => {});
+  }, [user.admin]);
+  if (!info) return null;
+  const { addresses, code } = info;
+  const last = step === 1;
+  return (
+    // Not closed by Escape or a click outside: it ends with Finish.
+    <Sheet label="Set up your library" onClose={() => {}} className="w-[640px] max-w-[calc(100%-32px)]">
+      <div className={`${sheetClass} !pt-8`}>
+        <p className="text-[12px] font-bold text-[#a0a0a0]">Step {step + 1} of 2</p>
+        <h2 className="mt-1 font-serif text-[24px] font-bold">
+          {last ? "Who can use this library?" : "Where are your books?"}
+        </h2>
+        <p className="mt-1 text-[14px] text-[#a0a0a0]">
+          {last
+            ? "You can change this later under Settings → Account."
+            : "Point Sonnet at the folders they are in. You can skip this and import files instead, or add folders later under Settings → Library."}
+        </p>
+        <div className="mt-5 max-h-[50vh] divide-y divide-white/10 overflow-y-auto rounded-2xl bg-white/5">
+          {last ? (
+            <>
+              <SettingRow
+                title="Let people sign themselves up"
+                text={`On, anyone who can open this server creates their own account${code ? `, and joins your family by entering your code, ${code}` : ""}. Off, only you add people.`}
+              >
+                <input
+                  type="checkbox"
+                  aria-label="Let people sign themselves up"
+                  checked={signups}
+                  onChange={(e) => setSignups(e.target.checked)}
+                />
+              </SettingRow>
+              {addresses.length > 0 && (
+                <SettingRow
+                  title="On your network"
+                  text={`Other devices open ${addresses.join(" or ")}, in a browser or in the Sonnet app.`}
+                >
+                  {null}
+                </SettingRow>
+              )}
+            </>
+          ) : (
+            <LibraryFolders />
+          )}
+        </div>
+        <div className="mt-7 flex justify-end gap-3">
+          {last && (
+            <button onClick={() => setStep(0)} className={`${controlClass} !h-[36px] !rounded-full !px-6`}>
+              Back
+            </button>
+          )}
+          <button
+            onClick={async () => {
+              if (!last) return setStep(1);
+              await authCall({ action: "signups", allow: signups });
+              await authCall({ action: "setupDone" });
+              location.reload(); // the books the folders held are in the library now
+            }}
+            className={`${primaryClass} h-[36px] px-8`}
+          >
+            {last ? "Finish" : "Next"}
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
 const HELP: [string, string][] = [
   [
     "Importing",
@@ -1654,18 +1856,61 @@ function Users() {
   return (
     <>
       <SettingRow
-        title="Allow new accounts"
-        text="Anyone who can open this server can create an account from the sign-in page. Turn this off once everyone has joined."
+        title="Let people sign themselves up"
+        text="On, anyone who can open this server creates their own account from the sign-in page, and joins a family with its code. Off, only you add people, below."
       >
         <input
           type="checkbox"
-          aria-label="Allow new accounts"
+          aria-label="Let people sign themselves up"
           checked={signups}
           onChange={async (e) => {
             setSignups(e.target.checked);
             await authCall({ action: "signups", allow: e.target.checked });
           }}
         />
+      </SettingRow>
+      <SettingRow
+        title="Add a person"
+        text="Make their account, then tell them the username and password. They can change both once signed in."
+      >
+        <form
+          className="flex flex-wrap gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.currentTarget;
+            const data = Object.fromEntries(new FormData(form));
+            const failed = await authCall({ ...data, action: "addUser" });
+            toast(failed ? "Not Added" : "Added", failed ?? `${data.first} can sign in as ${data.username}.`);
+            if (failed) return;
+            form.reset();
+            load();
+          }}
+        >
+          <input name="first" aria-label="First name" placeholder="First name" required maxLength={40} className={`${fieldClass} !h-[30px] !w-[120px]`} />
+          <input
+            name="username"
+            aria-label="Username"
+            placeholder="Username"
+            required
+            autoCapitalize="none"
+            spellCheck={false}
+            autoComplete="off"
+            pattern="[A-Za-z0-9._\-]{3,30}"
+            data-tip="3 to 30 letters, numbers, dots, dashes or underscores"
+            className={`${fieldClass} !h-[30px] !w-[120px]`}
+          />
+          <input
+            name="password"
+            type="password"
+            aria-label="Password"
+            placeholder="Password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            className={`${fieldClass} !h-[30px] !w-[120px]`}
+          />
+          <button className={controlClass}>Add</button>
+        </form>
       </SettingRow>
       {users.map((u) => (
         <SettingRow
@@ -1875,6 +2120,19 @@ function SettingsSheet({
         </SettingRow>
         {user.admin && (
           <>
+            <LibraryFolders
+              onChange={(added) => {
+                toast(
+                  "Library Updated",
+                  added === null
+                    ? "The folder’s books were removed."
+                    : added
+                      ? `${added} book${added === 1 ? " was" : "s were"} added.`
+                      : "Nothing new was found.",
+                );
+                setTimeout(() => location.reload(), 1500);
+              }}
+            />
             <SettingRow
               title="Tidy library"
               text="Go over every book again: move comics filed as books to Manga & Comics, clean download tags out of titles, and fingerprint files so the same file isn’t imported twice."
@@ -5084,6 +5342,7 @@ export default function Page() {
             onClose={() => setSettingsTab(null)}
           />
         )}
+        <Setup />
         {detail && <Detail {...detail} />}
         {previewing && <FoundSheet found={previewing} onClose={() => setPreviewing(null)} />}
         {picking && (

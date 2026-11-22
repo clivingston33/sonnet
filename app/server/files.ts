@@ -4,7 +4,26 @@ import { rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { COVER_DIR } from "./db";
+import { COVER_DIR, LIBRARY_DIR, db } from "./db";
+
+/**
+ * Where the book file with this stored name is: among the uploads, or where it lay when a
+ * library folder was scanned. Requests only ever name files by stored name, so this is the one
+ * place a path outside the app's own folders can come from, and only the admin's folders get in.
+ */
+export function filePath(name: string) {
+  const linked = db.prepare("SELECT path FROM linked WHERE name = ?").get(name)?.path;
+  return linked ? String(linked) : path.join(LIBRARY_DIR, name);
+}
+
+/**
+ * Deletes an uploaded book file. A file in a library folder is its owner's and is left alone;
+ * it stays linked, so the next scan doesn't bring the book straight back.
+ */
+export async function removeFile(name: string) {
+  if (db.prepare("SELECT 1 FROM linked WHERE name = ?").get(name)) return;
+  await rm(path.join(LIBRARY_DIR, name), { force: true });
+}
 
 /** SHA-256 of a file, read as a stream so audiobooks of any size are fine. */
 export async function hashFile(target: string) {

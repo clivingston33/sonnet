@@ -52,6 +52,10 @@ function open() {
       hash TEXT PRIMARY KEY, -- SHA-256 of an imported file, so the same file isn't stored twice
       book_id TEXT NOT NULL REFERENCES books(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS linked (
+      name TEXT PRIMARY KEY, -- the stored name a file in a library folder goes by (see server/folders.ts)
+      path TEXT NOT NULL UNIQUE -- where the file really is
+    );
     CREATE TABLE IF NOT EXISTS families (
       id INTEGER PRIMARY KEY,
       code TEXT NOT NULL UNIQUE -- six digits; whoever has it can join

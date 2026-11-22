@@ -1,7 +1,7 @@
 const form = document.querySelector("form");
 const address = document.getElementById("address");
 const error = document.getElementById("error");
-const buttons = [...document.querySelectorAll("button")];
+const found = document.getElementById("found");
 
 // main.js passes the server last used, why this page is showing again, and this computer's address.
 const query = new URLSearchParams(location.search);
@@ -18,6 +18,7 @@ if (query.get("lan")) lan.append(Object.assign(document.createElement("b"), { te
 /** Runs one of the choices; on success the window is already loading the library. */
 async function go(button, busy, action) {
   const label = button.textContent;
+  const buttons = document.querySelectorAll("button");
   for (const b of buttons) b.disabled = true;
   button.textContent = busy;
   error.textContent = "";
@@ -27,6 +28,20 @@ async function go(button, busy, action) {
   button.textContent = label;
   for (const b of buttons) b.disabled = false;
 }
+
+// Servers that answer on the network get a button each, above the field for typing an address.
+window.sonnetDesktop.discover().then((servers) => {
+  if (!servers.length) return;
+  found.append(Object.assign(document.createElement("label"), { textContent: "Found on your network" }));
+  for (const { name, url } of servers) {
+    const button = Object.assign(document.createElement("button"), {
+      type: "button",
+      textContent: `${name} · ${url.replace(/^http:\/\//, "")}`,
+    });
+    button.addEventListener("click", () => go(button, "Connecting…", () => window.sonnetDesktop.connect(url)));
+    found.append(button);
+  }
+});
 
 document.getElementById("local").addEventListener("click", (e) =>
   go(e.currentTarget, "Opening…", () => window.sonnetDesktop.useLocal()),

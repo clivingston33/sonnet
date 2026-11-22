@@ -10,8 +10,9 @@ A self-hosted library and reader for ebooks, audiobooks, PDFs and manga.
 
 </div>
 
-Sonnet is one Next.js app with one SQLite file. Import your files and read or listen in the
-browser, on any device, with progress kept on your own server.
+Sonnet is one Next.js app with one SQLite file, built the way Jellyfin is: a server that holds
+the library, and a browser or the Sonnet app on any device to read and listen with. Progress is
+kept on your own server.
 
 ## Features
 
@@ -59,29 +60,47 @@ npm run build
 npm start
 ```
 
-Open http://localhost:3000. The first account created becomes the admin. Other people create
-their own accounts from the sign-in page until the admin turns that off under
-Settings → Account.
+Open http://localhost:3000. The first account created is the admin's, and setup follows: the
+folders your books are in, then who else may use the library. People sign themselves up, joining
+a family with its six-digit code; the admin can turn that off under Settings → Account and add
+each person there instead.
 
 Offline reading and installing to a home screen only work over HTTPS or on localhost, so put the
 server behind a reverse proxy such as Caddy, or Tailscale, to use them from other devices.
 
-## Desktop app
+## Library folders
 
-`desktop/` is a Windows and macOS app with the same interface. On first launch it asks where
-your library is:
+Settings → Library (admin) lists the folders on the server's own disk that make up the library.
+Sonnet reads the files where they are and never changes, moves or deletes them. It looks for new
+files when a folder is added, on Scan Now, and when someone opens the library after 15 minutes.
 
-- **This computer.** The app runs its own copy of the server, reachable from this computer only,
-  and keeps your books in its data folder. Nothing to set up, and it works offline.
-- **A server.** Like Jellyfin's app, it connects to a Sonnet server by its address. It can also
-  host one: the library on this computer, opened to the other devices on your network.
+- Removing a book takes it out of the library; its file stays in the folder and is not picked up
+  again. Removing the folder and adding it back brings everything in it back.
+- With Docker, mount the folders into the container (`- /mnt/books:/books:ro` under `volumes:`)
+  and add the path inside it (`/books`).
+- Files can still be uploaded from any device (Import). Those are copied into `LIBRARY_DIR`.
+- A file deleted from a folder keeps its book until the book is removed in Sonnet.
+
+## Desktop apps
+
+`desktop/` builds two apps for Windows and macOS, as Jellyfin has a server and a player:
+
+- **Sonnet Server** runs the library for a household from the system tray, on port 38916, for
+  every device on the network. It opens its setup in your browser the first time.
+- **Sonnet** shows a library in its own window. It lists the servers it finds on the network,
+  takes an address for any other, and can instead keep a private library on this computer with
+  nothing to set up ("Use This Computer"), or host that library for the network.
+
+Servers answer a broadcast on UDP port 38918, which is how the app finds them; in Docker that
+needs host networking, and typing the address always works.
 
 ```
-npm install      # the server's packages, which the app builds its copy from
+npm install            # the server's packages, which the apps build their copy from
 cd desktop
 npm install
-npm start        # build the bundled server and run the app
-npm run dist     # build the installer for the system you are on, into desktop/dist
+npm start              # build the bundled server and run Sonnet
+npm run start:server   # ... or Sonnet Server
+npm run dist           # both installers for the system you are on: desktop/dist and desktop/dist/server
 ```
 
 An installer has to be built on the system it is for; the Desktop workflow on GitHub builds
@@ -93,12 +112,12 @@ warn on first open.
 | Variable | Default | Holds |
 | --- | --- | --- |
 | `DATA_DIR` | `data/` | `library.db` (accounts, shelves, ratings, progress, reading time) and cover images |
-| `LIBRARY_DIR` | `library/` | the imported book and audio files |
+| `LIBRARY_DIR` | `library/` | the uploaded book and audio files |
 | `MAX_UPLOAD_MB` | `2048` | the largest file that can be imported |
 
 Back up both folders. Settings → Library → Download Backup (admin) gives one zip of the database
-and covers, and Restore puts one back. The book files in `library/` are not in it and are copied
-by hand.
+and covers, and Restore puts one back. The book files are not in it: copy `library/` by hand, and
+your library folders are yours to back up.
 
 Imports are sent in 64 MB pieces, so large audiobooks upload through proxies that cap request
 size, such as Cloudflare's free tunnel. Importing a file that is already there is skipped, and

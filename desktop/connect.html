@@ -93,11 +93,13 @@
       }
       /* The second choice: the app's small grey button. */
       #connect,
+      #found button,
       #host {
         background: rgba(255, 255, 255, 0.1);
         color: inherit;
       }
       #connect:hover,
+      #found button:hover,
       #host:hover {
         background: rgba(255, 255, 255, 0.15);
       }
@@ -148,6 +150,8 @@
       <p>Keep your library on this computer: nothing to set up, and it works without the internet.</p>
       <button type="button" id="local" autofocus>Use This Computer</button>
       <div class="or">or use a Sonnet server</div>
+      <!-- Filled in by connect.js with the servers that answer on the network; nothing shows if none do. -->
+      <div id="found"></div>
       <label for="address">Server address</label>
       <input id="address" placeholder="192.168.1.20:3000 or https://books.example.com" spellcheck="false" />
       <button id="connect">Connect</button>

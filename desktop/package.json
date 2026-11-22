@@ -2,14 +2,15 @@
   "name": "sonnet-desktop",
   "productName": "Sonnet",
   "version": "0.1.0",
-  "description": "Desktop app for Sonnet: a library on this computer, or a window onto a Sonnet server.",
+  "description": "Sonnet for the desktop: the app that opens a library, and the server for a household.",
   "author": "clivingston33",
   "license": "AGPL-3.0-only",
   "private": true,
   "main": "main.js",
   "scripts": {
     "start": "node build-server.js && electron .",
-    "dist": "node build-server.js && electron-builder"
+    "start:server": "node build-server.js && electron . --server",
+    "dist": "node build-server.js && electron-builder && electron-builder --config server-build.json"
   },
   "devDependencies": {
     "electron": "^45.4.1",
@@ -17,7 +18,8 @@
   },
   "build": {
     "appId": "io.github.clivingston33.sonnet",
-    "files": ["main.js", "preload.js", "connect.html", "connect.js"],
+    "files": ["main.js", "local-server.js", "preload.js", "connect.html", "connect.js"],
+    "publish": null,
     "afterPack": "after-pack.js",
     "icon": "icon.png",
     "win": { "target": "nsis" },

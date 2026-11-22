@@ -98,6 +98,13 @@ export function authorize(req: Request, write = false): User | Response {
   return currentUser(req) ?? Response.json({ error: "Sign in first" }, { status: 401 });
 }
 
+/** The signed-in admin, or the Response to return instead. */
+export function authorizeAdmin(req: Request, write = false): User | Response {
+  const user = authorize(req, write);
+  if (user instanceof Response) return user;
+  return user.admin ? user : Response.json({ error: "Only the admin can do that." }, { status: 403 });
+}
+
 // `Secure` only over HTTPS: a home server reached by plain http://ip would otherwise never get the cookie.
 // Without Max-Age the cookie goes when the browser closes.
 const cookie = (req: Request, value: string, maxAge?: number) =>

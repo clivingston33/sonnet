@@ -1,18 +1,22 @@
 /**
- * The desktop app shows a Sonnet server's own interface in a window. Which server is the one choice
- * it asks for, on first launch:
- *  - this computer: it runs its own copy of the server (desktop/server, built by build-server.js)
- *    with the library kept in the app's data folder. Only this computer can reach it, unless it is
- *    told to host, and then other devices on the network can connect to it as to any server;
- *  - or, like Jellyfin's app, a server somewhere else, by its address.
+ * Two apps are built from this folder, as Jellyfin has a server and a player:
+ *  - Sonnet Server (server-app.js): the library for a household, run from the system tray;
+ *  - Sonnet (this file): shows a library in a window. On first launch it asks which one: a
+ *    private library on this computer, for which it runs its own copy of the server
+ *    (desktop/server) that only this computer can reach unless told to host; or a Sonnet server
+ *    somewhere else, found on the network or given by its address.
  */
-const { app, BrowserWindow, Menu, WebContentsView, ipcMain, nativeTheme, net, shell } = require("electron");
-const { spawn } = require("node:child_process");
+const { app, BrowserWindow, Menu, WebContentsView, dialog, ipcMain, nativeTheme, shell } = require("electron");
+const dgram = require("node:dgram");
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
+const { isSonnet, networks, startServer } = require("./local-server");
+
+// Which of the two this is: decided when it is built (server-build.json), or `--server` in development.
+if (require("./package.json").sonnetServer || process.argv.includes("--server")) return require("./server-app");
 
 const DEFAULT_PORT = 3000; // what `npm start` and compose.yaml serve on
+const DISCOVERY_PORT = 38918; // app/server/discovery.ts answers there
 // Sign-in, settings and downloaded books belong to an address, so the local one never changes.
 // ponytail: one fixed port; pick and remember a free one if other software ever turns out to use it.
 const LOCAL_PORT = 38917;
@@ -36,29 +40,18 @@ let view;
 let localServer = null;
 
 /**
- * Where other devices reach this computer's server while it is hosting; "" with no network.
+ * Where other devices reach this computer's library while it is hosting; "" with no network.
  * ponytail: the first network address found; with a VPN or several adapters it may be the wrong one.
  */
 function lanAddress() {
-  const net4 = Object.values(os.networkInterfaces())
-    .flat()
-    .find((n) => n.family === "IPv4" && !n.internal);
-  return net4 ? `http://${net4.address}:${LOCAL_PORT}` : "";
+  const [first] = networks();
+  return first ? `http://${first.address}:${LOCAL_PORT}` : "";
 }
 
 const showConnect = (error = "") =>
   view.webContents.loadFile(path.join(__dirname, "connect.html"), {
     query: { error, url: config.url ?? "", lan: lanAddress(), hosting: config.shared ? "1" : "" },
   });
-
-const isSonnet = async (origin) => {
-  try {
-    const res = await net.fetch(`${origin}/manifest.webmanifest`, { signal: AbortSignal.timeout(8000) });
-    return (await res.json()).name === "Sonnet";
-  } catch {
-    return false;
-  }
-};
 
 /**
  * Starts this computer's own server, if it isn't running, and waits until it answers.
@@ -75,23 +68,7 @@ async function localReady(shared) {
   }
   if (!localServer) {
     if (await isSonnet(LOCAL)) return true; // one left running by a copy of the app that crashed
-    const dir = app.isPackaged ? path.join(process.resourcesPath, "server") : path.join(__dirname, "server");
-    const home = app.getPath("userData");
-    // Electron's own binary, run as plain Node. Not a utility process: pdf.js only reads PDFs
-    // when it finds itself in real Node, and takes a utility process for a browser.
-    localServer = spawn(process.execPath, [path.join(dir, "server.js")], {
-      stdio: "ignore",
-      windowsHide: true,
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: "1",
-        NODE_ENV: "production",
-        PORT: String(LOCAL_PORT),
-        HOSTNAME: shared ? "0.0.0.0" : "127.0.0.1",
-        DATA_DIR: path.join(home, "data"),
-        LIBRARY_DIR: path.join(home, "library"),
-      },
-    });
+    localServer = startServer(LOCAL_PORT, shared);
     localServer.shared = shared;
     localServer.on("exit", () => (localServer = null));
     localServer.on("error", () => (localServer = null));
@@ -132,7 +109,50 @@ async function connect(input) {
   return `No Sonnet server answered at ${origins[0]}. Check the address and that the server is running.`;
 }
 
+/**
+ * The Sonnet servers on the local network, as `{ name, url }`. Asked the way Jellyfin's apps ask:
+ * a broadcast that every server answers with its name and port.
+ */
+function discover() {
+  return new Promise((done) => {
+    const found = new Map();
+    const socket = dgram.createSocket("udp4");
+    let over = false;
+    const finish = () => {
+      if (over) return;
+      over = true;
+      socket.close();
+      done([...found.values()]);
+    };
+    socket.on("error", finish); // no network: nothing found
+    socket.on("message", (message, from) => {
+      try {
+        const { name, port } = JSON.parse(message);
+        const key = `${name}:${port}`;
+        // A server on this computer answers on every address it has: keep the one that is it itself.
+        if (found.has(key) && from.address !== "127.0.0.1") return;
+        found.set(key, { name: String(name), url: `http://${from.address}:${Number(port)}` });
+      } catch {
+        // not an answer to the question
+      }
+    });
+    socket.bind(() => {
+      socket.setBroadcast(true);
+      // Every network's own broadcast address: some routers drop the general one.
+      const everyone = networks().map((n) => {
+        const mask = n.netmask.split(".").map(Number);
+        return n.address.split(".").map((part, i) => (Number(part) | (~mask[i] & 255)) >>> 0).join(".");
+      });
+      for (const to of new Set(["127.0.0.1", "255.255.255.255", ...everyone]))
+        socket.send("Who is SonnetServer?", DISCOVERY_PORT, to, () => {});
+      setTimeout(finish, 1200);
+    });
+  });
+}
+
 const local = (url) => url.startsWith("file:");
+/** True for a page of this computer's own library: the only one that may ask about its disk. */
+const fromLocalLibrary = (e) => !!config.local && e.senderFrame.url.startsWith(LOCAL);
 
 // Only the app's own connect page may choose the server; a server's page may only ask to leave.
 ipcMain.handle("connect", (e, input) =>
@@ -141,8 +161,17 @@ ipcMain.handle("connect", (e, input) =>
 ipcMain.handle("use-local", (e, shared) =>
   local(e.senderFrame.url) ? open(shared ? { local: true, shared: true } : { local: true }) : "Not allowed.",
 );
-app.on("quit", () => localServer?.kill());
+ipcMain.handle("discover", (e) => (local(e.senderFrame.url) ? discover() : []));
 ipcMain.on("change-server", () => showConnect());
+// Library folders are on the server's disk. Here that is this computer, so the page can offer
+// the system's folder dialog instead of a path to type.
+ipcMain.on("is-local", (e) => (e.returnValue = fromLocalLibrary(e)));
+ipcMain.handle("pick-folder", async (e) => {
+  if (!fromLocalLibrary(e)) return null;
+  const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+  return picked.canceled ? null : picked.filePaths[0];
+});
+app.on("quit", () => localServer?.kill());
 
 function createWindow() {
   // No title bar from the system: the top strip is the app's colour, with only the system's
@@ -199,7 +228,7 @@ else {
     win.focus();
   });
   app.whenReady().then(() => {
-    nativeTheme.themeSource = "dark"; // dark title bar and menus, matching the app
+    nativeTheme.themeSource = "dark"; // dark menus, matching the app
     const mac = process.platform === "darwin";
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([

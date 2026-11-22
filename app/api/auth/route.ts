@@ -11,13 +11,19 @@ import {
   switchProfile,
 } from "../../server/auth";
 import { db } from "../../server/db";
+import { lanAddresses } from "../../server/discovery";
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 // The guest from "Continue without an account" never counts: the first real account is the admin.
 const noAdmin = () => !db.prepare("SELECT 1 FROM users WHERE admin = 1").get();
-// Anyone who can reach the server may create an account unless the admin turns this off.
+// People sign themselves up, and a family code entered there puts them straight into a family.
+// The admin can turn that off and add people one by one instead.
 const signupsOpen = () =>
   db.prepare("SELECT value FROM settings WHERE key = 'signups'").get()?.value !== "off";
+const setting = (key: string, value: string) =>
+  db
+    .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT DO UPDATE SET value = excluded.value")
+    .run(key, value);
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const validPassword = (v: unknown): v is string =>
   typeof v === "string" && v.length >= 8 && v.length <= 200;
@@ -48,6 +54,10 @@ export async function GET(req: Request) {
     first, // no real account yet: the next one created becomes the admin
     signups: first || signupsOpen(),
     user,
+    // The admin of a new server is walked through setting it up, once (see `Setup` in app/page.tsx).
+    setup:
+      !!user?.admin && db.prepare("SELECT value FROM settings WHERE key = 'setup'").get()?.value === "pending",
+    addresses: user?.admin ? lanAddresses() : undefined,
     // The code others enter to join this person's family, and who is in it.
     family: family && {
       code: family.code,
@@ -116,6 +126,7 @@ export async function POST(req: Request) {
       return fail("No family has that code. Check it, or leave it empty.");
     }
     const id = create(first, text(body.last, 40), username, body.password, admin);
+    if (admin) setting("setup", "pending");
     if (joining) db.prepare("UPDATE users SET family = ? WHERE id = ?").run(joining.id, id);
     return signIn(id, body.remember === true);
   }
@@ -281,9 +292,24 @@ export async function POST(req: Request) {
   if (!user.admin) return fail("Only the admin can do that.", 403);
 
   if (body.action === "signups") {
-    db.prepare(
-      "INSERT INTO settings (key, value) VALUES ('signups', ?) ON CONFLICT DO UPDATE SET value = excluded.value",
-    ).run(body.allow === false ? "off" : "on");
+    setting("signups", body.allow === true ? "on" : "off");
+    return Response.json({ ok: true });
+  }
+
+  if (body.action === "setupDone") {
+    setting("setup", "done");
+    return Response.json({ ok: true });
+  }
+
+  // The admin makes someone's account and tells them the username and password.
+  if (body.action === "addUser") {
+    const first = text(body.first, 40);
+    const username = text(body.username, 30);
+    if (!first) return fail("Enter their first name.");
+    if (!USERNAME.test(username)) return fail(BAD_USERNAME);
+    if (!validPassword(body.password)) return fail("Use a password of at least 8 characters.");
+    if (idOf(username)) return fail("That username is taken. Choose another.", 409);
+    create(first, text(body.last, 40), username, body.password);
     return Response.json({ ok: true });
   }
 

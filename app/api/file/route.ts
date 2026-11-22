@@ -1,8 +1,8 @@
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { authorize } from "../../server/auth";
-import { COVER_DIR, LIBRARY_DIR, STORED, getBook, patchBook } from "../../server/db";
-import { saveCover, sendFile } from "../../server/files";
+import { COVER_DIR, STORED, getBook, patchBook } from "../../server/db";
+import { filePath, saveCover, sendFile } from "../../server/files";
 
 // Types the browser may display. Everything else is sent as a download.
 const TYPES: Record<string, string> = {
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   if (!STORED.test(name)) return new Response(null, { status: 400 });
   return sendFile(
     req,
-    path.join(cover ? COVER_DIR : LIBRARY_DIR, name),
+    cover ? path.join(COVER_DIR, name) : filePath(name),
     TYPES[name.split(".").pop()!],
     // Stored names never change content, so covers can be cached for good.
     cover ? "private, max-age=31536000, immutable" : "private, no-cache",

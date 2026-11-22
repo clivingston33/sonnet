@@ -1,0 +1,12 @@
+{
+  "appId": "io.github.clivingston33.sonnet.server",
+  "productName": "Sonnet Server",
+  "extraMetadata": { "name": "sonnet-server", "productName": "Sonnet Server", "sonnetServer": true },
+  "directories": { "output": "dist/server" },
+  "files": ["main.js", "server-app.js", "local-server.js", "icon.png"],
+  "afterPack": "after-pack.js",
+  "icon": "icon.png",
+  "publish": null,
+  "win": { "target": "nsis" },
+  "mac": { "target": "dmg", "category": "public.app-category.books" }
+}

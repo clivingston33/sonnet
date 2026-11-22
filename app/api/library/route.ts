@@ -1,7 +1,7 @@
-import { rm } from "node:fs/promises";
-import path from "node:path";
 import { authorize } from "../../server/auth";
-import { COVER_DIR, LIBRARY_DIR, STORED, db, getBook, patchBook } from "../../server/db";
+import { db, getBook, patchBook } from "../../server/db";
+import { scanIfStale } from "../../server/folders";
+import { deleteBook } from "../../server/ingest";
 import { EDITABLE_FIELDS, PREF_KEYS, USER_FIELDS, type Batch } from "../../sync";
 
 type Fields = Record<string, unknown>;
@@ -16,6 +16,7 @@ const pick = (source: unknown, keys: readonly string[]) => {
 export async function GET(req: Request) {
   const user = authorize(req);
   if (user instanceof Response) return user;
+  scanIfStale(); // books dropped into a library folder since the last look show up on the next visit
 
   const prefs: Fields = JSON.parse(
     String(db.prepare("SELECT prefs FROM users WHERE id = ?").get(user.id)!.prefs),
@@ -95,7 +96,8 @@ export async function PATCH(req: Request) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(day) && typeof seconds === "number" && seconds > 0 && seconds <= 86400)
       addTime.run(user.id, day, seconds);
 
-  // Removing a book removes it, and its files, for everyone: admin only.
+  // Removing a book removes it for everyone: admin only. Uploaded files are deleted with it;
+  // files in a library folder are left where they are.
   for (const id of Array.isArray(batch.removed) ? batch.removed : []) {
     const book = typeof id === "string" ? getBook(id) : null;
     if (!book) continue;
@@ -104,13 +106,7 @@ export async function PATCH(req: Request) {
       db.prepare("DELETE FROM user_books WHERE user_id = ? AND book_id = ?").run(user.id, id);
       if (db.prepare("SELECT 1 FROM user_books WHERE book_id = ?").get(id)) continue;
     } else if (!user.admin) continue;
-    const parts = Array.isArray(book.files) ? book.files.map((f) => (isFields(f) ? f.file : "")) : [];
-    for (const file of [book.file, ...parts])
-      if (typeof file === "string" && STORED.test(file))
-        await rm(path.join(LIBRARY_DIR, file), { force: true });
-    if (typeof book.coverFile === "string" && STORED.test(book.coverFile))
-      await rm(path.join(COVER_DIR, book.coverFile), { force: true });
-    db.prepare("DELETE FROM books WHERE id = ?").run(id);
+    await deleteBook(id, book);
   }
 
   return Response.json({ ok: true });

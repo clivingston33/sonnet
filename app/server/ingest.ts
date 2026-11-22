@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { kindOf } from "../formats";
-import { LIBRARY_DIR, db, getBook, patchBook, type BookData } from "./db";
-import { hashFile, saveCover } from "./files";
+import { COVER_DIR, STORED, db, getBook, patchBook, type BookData } from "./db";
+import { filePath, hashFile, removeFile, saveCover } from "./files";
 import { CONVERTER, nameMeta, readMeta, tidyComic, volumeOf } from "./metadata";
 
 const UNKNOWN_AUTHOR = "Unknown Author";
@@ -23,25 +23,35 @@ const partsOf = (book: BookData) => (Array.isArray(book.files) ? book.files.filt
 
 export type Ingested = { book: BookData & { id: unknown }; merged?: boolean; duplicate?: boolean };
 
+/** Deletes a book for everyone, with its cover and its uploaded files (see `removeFile`). */
+export async function deleteBook(id: string, book: BookData) {
+  for (const file of new Set([book.file, ...partsOf(book).map((part) => part.file)]))
+    if (typeof file === "string" && STORED.test(file)) await removeFile(file);
+  if (typeof book.coverFile === "string" && STORED.test(book.coverFile))
+    await rm(path.join(COVER_DIR, book.coverFile), { force: true });
+  db.prepare("DELETE FROM books WHERE id = ?").run(id);
+}
+
 /**
- * Turns a file that is already in the library folder (`file`, its stored name) into a book,
- * reading its own metadata and cover. `name` is what the file was called where it came from.
+ * Turns a file the library already holds (`file`, its stored name: an upload, or a file linked
+ * from a library folder) into a book, reading its own metadata and cover. `name` is what the
+ * file was called where it came from.
  * An audio file whose album matches an existing audiobook is added to it as the next part.
- * A file that is already in the library is deleted again and the existing book returned.
+ * A file that is already in the library is dropped again and the existing book returned.
  */
 export async function ingest(file: string, name: string): Promise<Ingested> {
   let kind = kindOf(name)!;
   // The very same file again (a folder imported twice): keep the copy that is already there.
-  const hash = await hashFile(path.join(LIBRARY_DIR, file));
+  const hash = await hashFile(filePath(file));
   const twin = db.prepare("SELECT book_id FROM files WHERE hash = ?").get(hash)?.book_id;
   if (twin) {
-    await rm(path.join(LIBRARY_DIR, file), { force: true });
+    await removeFile(file);
     return { book: { ...getBook(String(twin)), id: twin }, duplicate: true };
   }
   const remember = (bookId: unknown) =>
     db.prepare("INSERT OR REPLACE INTO files (hash, book_id) VALUES (?, ?)").run(hash, String(bookId));
 
-  const { cover, comic, ...meta } = await readMeta(path.join(LIBRARY_DIR, file));
+  const { cover, comic, ...meta } = await readMeta(filePath(file));
   if (comic) kind = "comic"; // an EPUB of page images belongs with the manga, not the novels
   const named = nameMeta(name);
   const tidy = (title: string | undefined) => (kind === "comic" && title ? tidyComic(title) : title);

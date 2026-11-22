@@ -2,17 +2,12 @@ import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
-import { authorize } from "../../server/auth";
-import { COVER_DIR, DATA_DIR, LIBRARY_DIR, STORED, closeDb, db, patchBook, type BookData } from "../../server/db";
-import { hashFile } from "../../server/files";
+import { authorizeAdmin as admin } from "../../server/auth";
+import { COVER_DIR, DATA_DIR, STORED, closeDb, db, patchBook, type BookData } from "../../server/db";
+import { filePath, hashFile } from "../../server/files";
 import { CONVERTER, nameMeta, readMeta, tidyComic, volumeOf } from "../../server/metadata";
 
 const DB_FILE = path.join(DATA_DIR, "library.db");
-const admin = (req: Request, write = false) => {
-  const user = authorize(req, write);
-  if (user instanceof Response) return user;
-  return user.admin ? user : Response.json({ error: "Only the admin can do that." }, { status: 403 });
-};
 
 /**
  * GET: a backup as one zip: the database (accounts, shelves, progress, reviews) and the cover images.
@@ -78,7 +73,7 @@ export async function POST(req: Request) {
     const parts = Array.isArray(book.files) ? book.files.map((f) => (f as { file?: unknown }).file) : [];
     for (const file of new Set([book.file, ...parts]))
       if (typeof file === "string" && STORED.test(file))
-        await hashFile(path.join(LIBRARY_DIR, file))
+        await hashFile(filePath(file))
           .then((hash) => remember.run(hash, id))
           .catch(() => {}); // the file is gone; nothing to fingerprint
 
@@ -90,7 +85,7 @@ export async function POST(req: Request) {
     if (kind === "book" && !locked.kind) {
       if (file.endsWith(".cbz")) kind = "comic";
       else if (file.endsWith(".epub")) {
-        const meta = await readMeta(path.join(LIBRARY_DIR, file));
+        const meta = await readMeta(filePath(file));
         if (meta.comic) {
           kind = "comic";
           patch.rtl = meta.rtl;
