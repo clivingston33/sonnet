@@ -2812,7 +2812,8 @@ function Search() {
         <label className="flex h-[36px] w-[345px] max-w-full items-center gap-2 rounded-full border border-white/15 px-[14px] text-[#9a9a9a] focus-within:border-white/40">
           <Icon name="search" className="size-4" strokeWidth={2} />
           <input
-            autoFocus
+            // Not on phones and tablets: focusing would throw the keyboard up over the page.
+            autoFocus={typeof matchMedia === "function" && !matchMedia("(pointer: coarse)").matches}
             type="search"
             aria-label="Search"
             placeholder={s.lookups ? "Search Books" : "Search Library"}

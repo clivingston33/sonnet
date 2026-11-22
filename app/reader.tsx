@@ -84,6 +84,27 @@ export async function pdfCover(file: Blob) {
   return cover;
 }
 
+type Touched = { changedTouches: ArrayLike<{ clientX: number; clientY: number }> };
+/**
+ * Touch handlers that call `turn` for a sideways swipe: 1 when the finger moves left (what is
+ * on the right comes in), -1 when it moves right. Up-and-down movement is left to scrolling.
+ */
+function swipe(turn: (by: -1 | 1) => void) {
+  let x = 0;
+  let y = 0;
+  return {
+    start: (e: Touched) => {
+      x = e.changedTouches[0].clientX;
+      y = e.changedTouches[0].clientY;
+    },
+    end: (e: Touched) => {
+      const dx = e.changedTouches[0].clientX - x;
+      const dy = e.changedTouches[0].clientY - y;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > 2 * Math.abs(dy)) turn(dx < 0 ? 1 : -1);
+    },
+  };
+}
+
 /**
  * The reading screen, laid out like an e-reader: the page fills the window, the toolbar
  * stays out of sight until the pointer goes to the top, and the bottom line says where you are.
@@ -119,12 +140,18 @@ function Shell({
   // True while the pointer is in the top strip of the window. An EPUB's own frame keeps pointer
   // moves to itself, so over the text column it is the header's own height that counts.
   const [near, setNear] = useState(false);
+  // One swipe tracker for the life of the reader; it always calls the latest `onTurn`.
+  const turnRef = useRef(onTurn);
+  useEffect(() => {
+    turnRef.current = onTurn;
+  });
+  const [swiped] = useState(() => swipe((by) => turnRef.current?.(by)));
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={`Reading ${book.title}`}
-      className="fixed inset-0 z-[45] flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-0 z-[45] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
       style={{ background: tone.bg, color: tone.fg }}
       onMouseMove={(e) => setNear(e.clientY < 150)}
       onMouseLeave={() => setNear(false)}
@@ -148,7 +175,7 @@ function Shell({
         </h2>
         {controls}
       </header>
-      <div className="relative flex min-h-0 grow">
+      <div className="relative flex min-h-0 grow" onTouchStart={swiped.start} onTouchEnd={swiped.end}>
         <div className="flex min-w-0 grow flex-col">{children}</div>
         {onTurn &&
           ([-1, 1] as const).map((by) => (
@@ -322,6 +349,16 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         r.themes.select(prefs.theme);
         r.themes.fontSize(`${prefs.fontSize}%`);
         r.on("keyup", turn); // key presses while focus is inside the book
+        // The book is in its own frame, so swipes on the text have to be picked up there.
+        const swiped = swipe((by) => {
+          // Dragging the handles of a text selection is not a page turn.
+          // (epub.js types this as one Contents; it is a list, one per visible section.)
+          if ((r.getContents() as unknown as Contents[]).some((c) => !c.window.getSelection()?.isCollapsed)) return;
+          if (by < 0) r.prev();
+          else r.next();
+        });
+        r.on("touchstart", swiped.start);
+        r.on("touchend", swiped.end);
         r.on("selected", (cfi: string, contents: Contents) => {
           selectedIn.current = contents;
           setSelection({ cfi, text: r.getRange(cfi).toString().trim().slice(0, 500) });
@@ -774,7 +811,8 @@ function PagedView({ book, onPatch, onClose }: Props) {
             <option value="scroll">Scroll (Webtoon)</option>
           </select>
           {mode !== "scroll" && (
-            <>
+            // Not on phones: there a swipe or a tap on the page's edge turns it, and the toolbar is full.
+            <span className="flex gap-1 max-md:hidden">
               <ToolButton
                 label={step > 0 ? "Previous page" : "Next page"}
                 icon="chevronLeft"
@@ -785,7 +823,7 @@ function PagedView({ book, onPatch, onClose }: Props) {
                 icon="chevronRight"
                 onClick={() => go(page + step)}
               />
-            </>
+            </span>
           )}
         </>
       }

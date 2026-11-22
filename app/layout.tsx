@@ -19,7 +19,14 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "Sonnet", statusBarStyle: "default" },
 };
 // `cover` lets the app paint to the screen edges; it pads itself clear of notches and home bars.
-export const viewport: Viewport = { themeColor: "#1e1e1e", viewportFit: "cover" };
+// minimumScale: the page already fits the screen, so there is nothing to zoom out to.
+export const viewport: Viewport = {
+  themeColor: "#1e1e1e",
+  viewportFit: "cover",
+  width: "device-width",
+  initialScale: 1,
+  minimumScale: 1,
+};
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
