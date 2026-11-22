@@ -661,7 +661,7 @@ function Section({
       <div className="mb-[14px] flex items-end justify-between border-b border-white/10 pb-[10px] md:mr-[33px]">
         <h2 className="font-serif text-[20px] font-bold">{title}</h2>
         {onClear && (
-          <button onClick={onClear} className="text-[13px] font-medium hover:underline">
+          <button onClick={onClear} className="text-[13px] font-medium text-[#a0a0a0] hover:text-white">
             Clear
           </button>
         )}
@@ -1363,7 +1363,7 @@ function Setup() {
             ? "You can change this later under Settings → Account."
             : "Point Sonnet at the folders they are in. You can skip this and import files instead, or add folders later under Settings → Library."}
         </p>
-        <div className="mt-5 max-h-[50vh] divide-y divide-white/10 overflow-y-auto rounded-2xl bg-white/5">
+        <div className="mt-5 max-h-[50vh] divide-y divide-white/10 overflow-y-auto rounded-2xl border border-white/10">
           {last ? (
             <>
               <SettingRow
@@ -1412,6 +1412,9 @@ function Setup() {
     </Sheet>
   );
 }
+
+/** The guide, published from docs/index.html by GitHub Pages: it is read before there is a server. */
+const DOCS = "https://clivingston33.github.io/sonnet/";
 
 const HELP: [string, string][] = [
   [
@@ -2190,12 +2193,21 @@ function SettingsSheet({
         )}
       </>
     ),
-    help: HELP.map(([title, text]) => (
-      <div key={title} className="px-5 py-4">
-        <p className="text-[14px] font-bold">{title}</p>
-        <p className="mt-1 text-[13px] leading-[19px] text-[#a0a0a0]">{text}</p>
-      </div>
-    )),
+    help: (
+      <>
+        <SettingRow title="Docs" text="Setting up a server, other devices, backups and troubleshooting.">
+          <a href={DOCS} target="_blank" rel="noreferrer" className={`${controlClass} flex items-center`}>
+            Open Docs
+          </a>
+        </SettingRow>
+        {HELP.map(([title, text]) => (
+          <div key={title} className="px-5 py-4">
+            <p className="text-[14px] font-bold">{title}</p>
+            <p className="mt-1 text-[13px] leading-[19px] text-[#a0a0a0]">{text}</p>
+          </div>
+        ))}
+      </>
+    ),
   };
   return (
     <Sheet
@@ -2275,7 +2287,8 @@ function Detail({ ids, id }: DetailState) {
   );
   const info = book.info;
   const tracked = !!book.file && (book.kind === "audiobook" || canRead(book));
-  const card = "rounded-2xl bg-[#3a393c] p-[17px]";
+  // Outlined, like the rows of the setup sheet: a filled box reads as a second surface inside the sheet.
+  const card = "rounded-2xl border border-white/10 p-[17px]";
   const arrow = "absolute top-1/2 -translate-y-1/2 text-[#8c8c8c] hover:text-white";
   const series = book.series
     ? s.books.filter((b) => b.series === book.series && b.id !== id).toSorted(bySeriesIndex)
@@ -2415,7 +2428,7 @@ function Detail({ ids, id }: DetailState) {
                 {twin && (
                   <button
                     onClick={() => setDetail({ ids, id: twin.id })}
-                    className={`${card} mt-[11px] flex w-full items-center gap-3 text-left hover:bg-[#444346]`}
+                    className={`${card} mt-[11px] flex w-full items-center gap-3 text-left hover:bg-white/5`}
                   >
                     <Cover book={twin} w={42} />
                     <span>
@@ -2604,7 +2617,7 @@ function Reviews({ book }: { book: Book }) {
       {reviews.length > 0 ? (
         <div className="mt-3 grid gap-4 md:grid-cols-2 md:gap-[26px]">
           {reviews.map((r) => (
-            <div key={r.name + r.created} className="rounded-2xl bg-[#3a393c] p-[17px]">
+            <div key={r.name + r.created} className="rounded-2xl border border-white/10 p-[17px]">
               <p className="max-h-[152px] overflow-y-auto text-[14px] leading-[19px] whitespace-pre-line">
                 {r.text}
               </p>
@@ -2872,7 +2885,7 @@ function FoundSheet({ found, onClose }: { found: Found; onClose: () => void }) {
                   .filter(Boolean)
                   .join(" • ")}
               </p>
-              <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl bg-[#3a393c] p-[17px]">
+              <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl border border-white/10 p-[17px]">
                 <div>
                   <p className="text-[16px] font-bold">{isManga ? "Manga" : "Book"}</p>
                   <p className="text-[13px] text-[#c8c8c8]">
@@ -4317,7 +4330,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
                 <button
                   type="button"
                   onClick={() => switchTo("forgot")}
-                  className="text-[#a0a0a0] hover:text-white hover:underline"
+                  className="text-[#a0a0a0] hover:text-white"
                 >
                   Forgot password?
                 </button>
@@ -4342,7 +4355,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
             <button
               type="button"
               onClick={() => switchTo("login")}
-              className="text-[13px] text-[#a0a0a0] hover:text-white hover:underline"
+              className="text-[13px] text-[#a0a0a0] hover:text-white"
             >
               Back to sign in
             </button>
@@ -4358,11 +4371,20 @@ function SignIn({ onDone }: { onDone: () => void }) {
           <button
             // Called bare: the bridge can't be handed the click event.
             onClick={() => globalThis.sonnetDesktop?.changeServer()}
-            className="mx-auto mt-4 block text-[13px] text-[#a0a0a0] hover:text-white hover:underline"
+            className="mx-auto mt-4 block text-[13px] text-[#a0a0a0] hover:text-white"
           >
-            Change library
+            {/* A new library on this computer has nobody to sign in as: an existing account is on its server. */}
+            {options.first ? "Already have an account? Connect to its server" : "Change library"}
           </button>
         )}
+        <a
+          href={DOCS}
+          target="_blank"
+          rel="noreferrer"
+          className="mx-auto mt-4 block w-fit text-[13px] text-[#a0a0a0] hover:text-white"
+        >
+          Docs
+        </a>
       </div>
     </main>
   );
@@ -4691,7 +4713,7 @@ export default function Page() {
         {globalThis.sonnetDesktop && (
           <button
             onClick={() => globalThis.sonnetDesktop?.changeServer()}
-            className="mt-4 text-[13px] text-[#a0a0a0] hover:text-white hover:underline"
+            className="mt-4 text-[13px] text-[#a0a0a0] hover:text-white"
           >
             Change library
           </button>
@@ -5138,7 +5160,8 @@ export default function Page() {
                     <span className="truncate text-[13.500px] font-bold">{user.name}</span>
                   </>
                 }
-                panelClass="bottom-full left-0 mb-1 w-full"
+                // The sidebar's width inside its padding. The menu is fixed to the window, so `w-full` would span it.
+                panelClass="w-[192px]"
               >
                 <p className="truncate px-[6px] py-1 text-[12px] text-[#9a9a9a]">{user.name}</p>
                 <MenuItem
