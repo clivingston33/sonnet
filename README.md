@@ -66,6 +66,28 @@ Settings → Account.
 Offline reading and installing to a home screen only work over HTTPS or on localhost, so put the
 server behind a reverse proxy such as Caddy, or Tailscale, to use them from other devices.
 
+## Desktop app
+
+`desktop/` is a Windows and macOS app with the same interface. On first launch it asks where
+your library is:
+
+- **This computer.** The app runs its own copy of the server, reachable from this computer only,
+  and keeps your books in its data folder. Nothing to set up, and it works offline.
+- **A server.** Like Jellyfin's app, it connects to a Sonnet server by its address. It can also
+  host one: the library on this computer, opened to the other devices on your network.
+
+```
+npm install      # the server's packages, which the app builds its copy from
+cd desktop
+npm install
+npm start        # build the bundled server and run the app
+npm run dist     # build the installer for the system you are on, into desktop/dist
+```
+
+An installer has to be built on the system it is for; the Desktop workflow on GitHub builds
+them all when a `v*` tag is pushed. The installers are not code-signed, so Windows and macOS
+warn on first open.
+
 ## Configuration
 
 | Variable | Default | Holds |
