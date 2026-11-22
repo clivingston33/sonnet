@@ -5,7 +5,8 @@ set -euo pipefail
 HOST=root@192.0.2.1
 CT=105
 
-git archive HEAD | ssh "$HOST" "pct exec $CT -- tar -x -C /opt/books"
+# The source folders are replaced, not overwritten, so files deleted from the repo go away too.
+git archive HEAD | ssh "$HOST" "pct exec $CT -- bash -c 'rm -rf /opt/books/app /opt/books/public && tar -x -C /opt/books'"
 ssh "$HOST" "pct exec $CT -- bash -c '
   set -e
   chown -R books:books /opt/books && cd /opt/books
