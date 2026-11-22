@@ -1,6 +1,6 @@
 {
-  "name": "Books",
-  "short_name": "Books",
+  "name": "Sonnet",
+  "short_name": "Sonnet",
   "description": "Your library of ebooks, audiobooks and manga",
   "start_url": "/",
   "display": "standalone",

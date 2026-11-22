@@ -1,4 +1,4 @@
-# Library
+# Sonnet
 
 A self-hosted library for ebooks, audiobooks and PDFs.
 
