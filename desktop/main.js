@@ -80,8 +80,20 @@ async function localReady(shared) {
   return false;
 }
 
+/**
+ * True for an address of this computer's own library. Nothing keeps that running but this app,
+ * so it is opened as the local library, which starts it, and never as a server somewhere else.
+ */
+function mine(url) {
+  const { hostname, port } = new URL(url);
+  return (
+    Number(port) === LOCAL_PORT && ["127.0.0.1", "localhost", ...networks().map((n) => n.address)].includes(hostname)
+  );
+}
+
 /** Opens what `choice` names and remembers it. Returns what went wrong, or null once it is loading. */
 async function open(choice) {
+  if (choice.url && mine(choice.url)) choice = config.shared ? { local: true, shared: true } : { local: true };
   if (choice.local && !(await localReady(!!choice.shared)))
     return "The library on this computer couldn’t be started.";
   config = choice;
@@ -122,7 +134,8 @@ function discover() {
       if (over) return;
       over = true;
       socket.close();
-      done([...found.values()]);
+      // Not this computer's own library while it is hosting: that is "Use This Computer", not a server.
+      done([...found.values()].filter((s) => !mine(s.url)));
     };
     socket.on("error", finish); // no network: nothing found
     socket.on("message", (message, from) => {

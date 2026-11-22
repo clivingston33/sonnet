@@ -17,7 +17,7 @@
       <a class="brand" href="./"><span class="flower"></span>Sonnet</a>
       <a href="docs.html">Docs</a>
       <a href="download.html">Download</a>
-      <a href="https://github.com/clivingston33/sonnet">GitHub</a>
+      <a class="gh" href="https://github.com/clivingston33/sonnet" aria-label="Sonnet on GitHub"><span class="mark"></span><span data-stars></span></a>
     </header>
 
     <main class="wrap text">
@@ -68,7 +68,7 @@
       <h2>This website</h2>
       <p>
         It is hosted by GitHub Pages and loads its fonts from Google Fonts, so both see your address when
-        you visit. It sets no cookies and runs no scripts.
+        you visit. It sets no cookies. Its one script asks GitHub how many stars the project has.
       </p>
 
       <h2>Questions</h2>
@@ -76,11 +76,34 @@
     </main>
 
     <footer class="wrap">
-      <span>Sonnet is free software under the AGPL-3.0 licence.</span>
-      <a href="docs.html">Docs</a>
-      <a href="download.html">Download</a>
-      <a href="privacy.html">Privacy</a>
-      <a href="https://github.com/clivingston33/sonnet">GitHub</a>
+      <div class="foot">
+        <div class="about">
+          <a class="brand" href="./"><span class="flower"></span>Sonnet</a>
+          <p>A self-hosted library and reader for ebooks, audiobooks, PDFs and manga.</p>
+        </div>
+        <div>
+          <b>Sonnet</b>
+          <a href="download.html">Download</a>
+          <a href="docs.html">Docs</a>
+          <a href="privacy.html">Privacy</a>
+        </div>
+        <div>
+          <b>Guides</b>
+          <a href="docs.html#docker">Run with Docker</a>
+          <a href="docs.html#books">Adding books</a>
+          <a href="docs.html#devices">Other devices</a>
+          <a href="docs.html#troubleshooting">Troubleshooting</a>
+        </div>
+        <div>
+          <b>Project</b>
+          <a href="https://github.com/clivingston33/sonnet">Source on GitHub</a>
+          <a href="https://github.com/clivingston33/sonnet/releases">Releases</a>
+          <a href="https://github.com/clivingston33/sonnet/issues">Report a problem</a>
+          <a href="https://github.com/clivingston33/sonnet/blob/main/LICENSE">Licence</a>
+        </div>
+      </div>
+      <p class="legal"><span>© 2026 Caleb Livingston</span><span>Free software under the AGPL-3.0 licence</span></p>
     </footer>
+    <script src="site.js"></script>
   </body>
 </html>

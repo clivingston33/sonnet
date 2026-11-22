@@ -122,17 +122,14 @@ tr + tr > * {
   margin: 0 auto;
   padding: 0 20px;
 }
-.top,
-footer {
+.top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 24px;
-  font-size: 13px;
-}
-.top {
   padding-top: 20px;
   padding-bottom: 20px;
+  font-size: 13px;
 }
 .top a,
 footer a {
@@ -143,31 +140,87 @@ footer a:hover,
 .top a[aria-current] {
   color: #fff;
 }
-.top .brand {
+.brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-right: auto;
   font: bold 18px/24px "Source Serif 4", Georgia, serif;
+}
+.top .brand,
+footer .brand {
+  margin-right: auto;
   color: #f2f2f2;
 }
-/* The Sonnet flower (icon.svg), in the colour of the text beside it. */
-.flower {
+/* The Sonnet flower (icon.svg) and GitHub's mark (github.svg), in the colour of the text beside them. */
+.flower,
+.mark {
+  flex: none;
   width: 24px;
   height: 24px;
   background: currentColor;
   -webkit-mask: url(icon.svg) center / contain no-repeat;
   mask: url(icon.svg) center / contain no-repeat;
 }
-footer {
-  margin-top: 96px;
-  padding-top: 24px;
+.mark {
+  width: 18px;
+  height: 18px;
+  -webkit-mask-image: url(github.svg);
+  mask-image: url(github.svg);
+}
+/* The mark, with the star count site.js fills in beside it. */
+.gh {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+/* What Sonnet is, three lists of links, and a line of small print under a rule. */
+/* `.wrap` too, or its own margin and padding would win over these. */
+footer.wrap {
+  margin-top: 112px;
+  padding-top: 48px;
   padding-bottom: 40px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  line-height: 20px;
   color: #8c8c8c;
 }
-footer span {
-  margin-right: auto;
+.foot {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 32px 40px;
+}
+.foot .brand {
+  width: fit-content;
+}
+.foot p {
+  max-width: 280px;
+}
+.foot b {
+  display: block;
+  margin-bottom: 8px;
+}
+.foot div > a:not(.brand) {
+  display: block;
+  width: fit-content;
+  padding: 3px 0;
+}
+.legal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 24px;
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+}
+@media (max-width: 767px) {
+  .foot {
+    grid-template-columns: 1fr 1fr;
+  }
+  .foot .about {
+    grid-column: 1 / -1;
+  }
 }
 /* The app's two buttons: white and round, and the small grey one. */
 .button {
