@@ -4292,6 +4292,15 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedAt, loaded, s.lookups]);
 
+  // Like a TV app: when the account has several profiles, opening the app asks who is reading.
+  // Once per browser session, so a reload does not ask again.
+  useEffect(() => {
+    if (!loaded || sessionStorage.getItem("asked-who")) return;
+    sessionStorage.setItem("asked-who", "1");
+    setPicking((now) => now ?? "auto");
+  }, [loaded]);
+  const filePicker = useRef<HTMLInputElement>(null);
+
   if (!loaded)
     return auth === "loading" ? null : auth === "offline" ? (
       <main className="flex h-full flex-col items-center justify-center">
@@ -4309,6 +4318,11 @@ export default function Page() {
       />
     );
   const user = auth;
+  /** Import: a phone goes straight to its files; elsewhere the sheet opens with the file chooser over it. */
+  const startImport = () => {
+    if (!matchMedia("(pointer: coarse)").matches) setImporting(true);
+    filePicker.current?.click();
+  };
 
   const lib: Lib = {
     s,
@@ -4385,7 +4399,7 @@ export default function Page() {
       await removeDownloads([...offline]);
       setOffline(new Set());
     },
-    openImport: () => setImporting(true),
+    openImport: startImport,
     importFiles,
     addBook,
     sortable,
@@ -4697,7 +4711,7 @@ export default function Page() {
                   label="Import Books"
                   onClick={() => {
                     setNavOpen(false);
-                    setImporting(true);
+                    startImport();
                   }}
                 />
                 <MenuItem
@@ -4737,7 +4751,7 @@ export default function Page() {
                 <h1 className="font-serif text-[36px] leading-[52px] font-bold">{title}</h1>
                 {view === "home" && (
                   <button
-                    onClick={() => setImporting(true)}
+                    onClick={startImport}
                     className="flex h-[36px] shrink-0 items-center gap-2 rounded-lg border border-white/10 px-4 text-[13px] font-bold hover:bg-white/5"
                   >
                     <Icon name="import" className="size-4" strokeWidth={2} />
@@ -4904,6 +4918,19 @@ export default function Page() {
           <Player key={playingBook.id} book={playingBook} onClose={() => setPlaying(null)} />
         )}
         {importing && <ImportSheet onClose={() => setImporting(false)} />}
+        <input
+          ref={filePicker}
+          type="file"
+          multiple
+          accept={ACCEPT}
+          aria-label="Choose files to import"
+          className="sr-only"
+          onChange={(e) => {
+            lib.importFiles([...(e.target.files ?? [])]);
+            e.target.value = ""; // so the same file can be chosen again
+            setImporting(false);
+          }}
+        />
         {dropping && (
           <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm">
             <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-[28px] border-2 border-dashed border-white/30 text-center">
