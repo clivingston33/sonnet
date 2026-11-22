@@ -3835,8 +3835,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
   return (
     <main className="flex min-h-full items-center justify-center p-4">
       <div className="w-[440px] max-w-full rounded-[28px] bg-[#2c2c2e] p-8 shadow-2xl">
-        {/* eslint-disable-next-line @next/next/no-img-element -- the app's own small SVG icon */}
-        <img src="/icon.svg" alt="Sonnet" className="size-11" />
+        <Icon name="book" className="size-9" />
         <h1 className="mt-3 font-serif text-[28px] font-bold">
           {registering ? "Create your account" : mode === "forgot" ? "Reset your password" : "Welcome back"}
         </h1>
