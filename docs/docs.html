@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sonnet Docs</title>
+    <meta name="description" content="Set up a Sonnet server, add your books and read them on every device." />
+    <meta name="theme-color" content="#1e1e1e" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Source+Serif+4:wght@700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="site.css" />
+  </head>
+  <body>
+    <header class="top wrap">
+      <a class="brand" href="./"><span class="flower"></span>Sonnet</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="download.html">Download</a>
+      <a href="https://github.com/clivingston33/sonnet">GitHub</a>
+    </header>
+    <div class="page wrap">
+      <nav class="side" aria-label="Sections">
+        <p>Getting Started</p>
+        <a href="#how">How Sonnet works</a>
+        <a href="#desktop">Desktop apps</a>
+        <a href="#docker">Docker</a>
+        <a href="#node">Node</a>
+        <a href="#first-run">First run</a>
+        <p>Your Library</p>
+        <a href="#books">Adding books</a>
+        <a href="#devices">Other devices</a>
+        <a href="#people">People</a>
+        <p>Running a Server</p>
+        <a href="#backups">Backups</a>
+        <a href="#configuration">Configuration</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+      </nav>
+
+      <main>
+        <section id="how">
+          <h1>How Sonnet works</h1>
+          <p>
+            Sonnet is a self-hosted library and reader for ebooks, audiobooks, PDFs and manga, built the way
+            Jellyfin is. A <b>server</b> holds your books and remembers everyone’s progress. You read and
+            listen in a <b>browser</b> or in the <b>Sonnet app</b>, on any device that can reach the server.
+            Nothing leaves your own computer.
+          </p>
+          <img class="shot" src="screenshots/library.webp" alt="The library, a grid of book covers" />
+          <p>Pick the row that fits you; each has its own section below.</p>
+          <div class="table">
+            <table>
+              <tr><th>You want</th><th>Use</th><th>Needs</th></tr>
+              <tr><td>A library just for you, on one computer</td><td><a href="#desktop">Sonnet app → Use This Computer</a></td><td>Nothing</td></tr>
+              <tr><td>A library for the household, run from a PC or Mac</td><td><a href="#desktop">Sonnet Server app</a></td><td>A computer that stays on</td></tr>
+              <tr><td>A library on a home server or NAS</td><td><a href="#docker">Docker</a></td><td>Docker</td></tr>
+              <tr><td>To run it from the source</td><td><a href="#node">Node</a></td><td>Node 24</td></tr>
+            </table>
+          </div>
+        </section>
+
+        <section id="desktop">
+          <h2>Desktop apps</h2>
+          <p>
+            Two apps for Windows and macOS are on the <a href="download.html">download page</a>. They are
+            not code-signed, so Windows and macOS warn the first time you open them.
+          </p>
+          <h3>Sonnet</h3>
+          <p>The reader, in its own window. On first open it asks where your library is:</p>
+          <ul>
+            <li><b>Use This Computer</b> keeps a private library on this computer. There is nothing to set up and it works without the internet.</li>
+            <li><b>Found on your network</b> lists the Sonnet servers that answer nearby. Click one to connect.</li>
+            <li><b>Server address</b> takes any other server, such as <code>192.168.1.20:3000</code> or <code>https://books.example.com</code>.</li>
+            <li><b>Host a Server on This Computer</b> opens your library and lets other devices on your network use it while the app is open.</li>
+          </ul>
+          <p>To switch later, choose <b>Change Library</b> in the account menu or the Library menu.</p>
+          <h3>Sonnet Server</h3>
+          <p>
+            Runs the library for a household from the system tray, on port <code>38916</code>, and opens its
+            setup in your browser the first time. Leave it running; every device on the network can then
+            open it. Use this one if the computer is the family’s server.
+          </p>
+        </section>
+
+        <section id="docker">
+          <h2>Docker</h2>
+          <p>The usual way to run Sonnet on a home server or NAS.</p>
+          <pre>git clone https://github.com/clivingston33/sonnet
+cd sonnet
+docker compose up -d --build</pre>
+          <p>
+            Open <code>http://localhost:3000</code>, or the server’s address from another device. The
+            database is kept in <code>./data</code> and imported files in <code>./library</code>, beside
+            <code>compose.yaml</code>.
+          </p>
+          <h3>Books already on the server</h3>
+          <p>
+            Mount the folder into the container, read-only, in <code>compose.yaml</code>, then add the path
+            inside the container (<code>/books</code>) under Settings → Library:
+          </p>
+          <pre>    volumes:
+      - ./data:/data
+      - ./library:/library
+      - /mnt/books:/books:ro</pre>
+          <p class="note">
+            The Sonnet app finds servers by a broadcast on UDP port 38918. In Docker that only works with
+            host networking. Typing the address always works.
+          </p>
+        </section>
+
+        <section id="node">
+          <h2>Node</h2>
+          <p>Sonnet needs Node 24 or newer: it uses the database built into Node, so there is nothing else to install.</p>
+          <pre>git clone https://github.com/clivingston33/sonnet
+cd sonnet
+npm install
+npm run build
+npm start</pre>
+          <p>It serves on port 3000. To keep it running after you log out, start it from a service manager such as systemd.</p>
+        </section>
+
+        <section id="first-run">
+          <h2>First run</h2>
+          <ol>
+            <li>Open the server. A new one shows <b>Create your account</b>. The first account is the <b>admin</b>’s.</li>
+            <li><b>Where are your books?</b> Add the folders they are in, or press Next and import files later.</li>
+            <li><b>Who can use this library?</b> Leave sign-ups on for people to make their own accounts, or turn them off and add each person yourself.</li>
+          </ol>
+          <p>Everything in setup can be changed later in Settings.</p>
+        </section>
+
+        <section id="books">
+          <h2>Adding books</h2>
+          <h3>Library folders</h3>
+          <p>
+            Settings → Library (admin) lists the folders on the server’s own disk that make up the library.
+            Sonnet reads the files where they are and never changes, moves or deletes them. It looks for new
+            files when a folder is added, on <b>Scan Now</b>, and when someone opens the library after 15
+            minutes.
+          </p>
+          <ul>
+            <li>Removing a book takes it out of the library. Its file stays in the folder and is not picked up again.</li>
+            <li>Removing a folder and adding it back brings everything in it back.</li>
+          </ul>
+          <h3>Importing</h3>
+          <p>
+            From any device, drop files or whole folders anywhere in the window, or choose
+            <b>Import Books</b> in the account menu. Imported files are copied to the server. Large files
+            are sent in 64 MB pieces, so they get through proxies that cap upload size.
+          </p>
+          <h3>Formats</h3>
+          <!-- The lists in app/formats.ts. -->
+          <div class="table">
+            <table>
+              <tr><th>Kind</th><th>Files</th></tr>
+              <tr><td>Books, PDFs, manga and comics</td><td>EPUB, PDF, CBZ, TXT</td></tr>
+              <tr><td>Audiobooks</td><td>M4B, MP3, M4A, FLAC, OGG, OPUS, WAV</td></tr>
+            </table>
+          </div>
+          <p>
+            Audio files that share an album tag become one audiobook with chapters. CBZ volumes named like
+            “One Piece v03” are grouped into a series. Title, author, cover and series are read from the
+            file; anything missing is looked up online, and <b>Edit Details</b> in a book’s ••• menu fixes
+            the rest.
+          </p>
+        </section>
+
+        <section id="devices">
+          <h2>Other devices</h2>
+          <h3>At home</h3>
+          <p>
+            On the same network, open the server’s address in a browser, for example
+            <code>http://192.168.1.20:3000</code>. Setup shows the admin the address to use, and the Sonnet
+            app lists the servers it finds by itself.
+          </p>
+          <h3>Phones and tablets</h3>
+          <p>
+            Open the server in the browser and choose <b>Add to Home Screen</b>. Sonnet then opens like an
+            app. Books you download in it can be read with no connection, and progress made offline is sent
+            when the server is back.
+          </p>
+          <p class="note">
+            Installing to a home screen and offline reading only work over <b>HTTPS</b>. A plain
+            <code>http://192.168…</code> address can read and listen, but not install or download. Either
+            option below gives you HTTPS.
+          </p>
+          <h3>Away from home</h3>
+          <ul>
+            <li><b>Tailscale</b> is the simplest: install it on the server and on your devices, then run <code>tailscale serve 3000</code> on the server. Only your own devices can reach it.</li>
+            <li><b>A reverse proxy</b> with your own domain. With Caddy the whole configuration is:</li>
+          </ul>
+          <pre>books.example.com {
+    reverse_proxy localhost:3000
+}</pre>
+          <p>If the server is open to the internet, turn off sign-ups under Settings → Account once everyone has an account.</p>
+        </section>
+
+        <section id="people">
+          <h2>People</h2>
+          <p>Books are shared by everyone on the server. Everything else belongs to a person.</p>
+          <div class="table">
+            <table>
+              <tr><td><b>Account</b></td><td>A username and password. The admin can add accounts, set passwords and turn sign-ups on or off under Settings → Account.</td></tr>
+              <tr><td><b>Profile</b></td><td>One sign-in holds up to 8 profiles, each with its own shelves, progress, goals and optional PIN. Change who is reading with Switch Profile in the account menu.</td></tr>
+              <tr><td><b>Family</b></td><td>Accounts that share a six-digit family code see each other’s shared shelves, recommendations and reviews. Enter the code when creating an account, or later in Settings.</td></tr>
+            </table>
+          </div>
+        </section>
+
+        <section id="backups">
+          <h2>Backups</h2>
+          <p>
+            Settings → Library → <b>Download Backup</b> (admin) gives one zip of the database and covers:
+            accounts, shelves, ratings, progress and reading time. <b>Restore</b> puts one back.
+          </p>
+          <p>
+            Book files are not in the backup. Copy the <code>library</code> folder yourself, and back up
+            your library folders as you would any other files.
+          </p>
+        </section>
+
+        <section id="configuration">
+          <h2>Configuration</h2>
+          <p>Set these as environment variables. None is required.</p>
+          <div class="table">
+            <table>
+              <tr><th>Variable</th><th>Default</th><th>Holds</th></tr>
+              <tr><td><code>DATA_DIR</code></td><td><code>data/</code></td><td>The database and cover images</td></tr>
+              <tr><td><code>LIBRARY_DIR</code></td><td><code>library/</code></td><td>Imported book and audio files</td></tr>
+              <tr><td><code>MAX_UPLOAD_MB</code></td><td><code>2048</code></td><td>The largest file that can be imported</td></tr>
+              <tr><td><code>PORT</code></td><td><code>3000</code></td><td>The port the server listens on</td></tr>
+            </table>
+          </div>
+        </section>
+
+        <section id="troubleshooting">
+          <h2>Troubleshooting</h2>
+          <h3>Forgot a password</h3>
+          <p>
+            Choose <b>Forgot password?</b> on the sign-in page. The server sends no email: the 8-digit code
+            appears for the admin under Settings → Account and is printed to the server log, and works for
+            30 minutes. An admin who is locked out reads it from the log.
+          </p>
+          <h3>“Too many wrong tries”</h3>
+          <p>Eight wrong passwords lock an account for 15 minutes.</p>
+          <h3>The app doesn’t find my server</h3>
+          <p>Type its address instead. Discovery needs both devices on the same network, and does not cross Docker’s default networking or most VPNs.</p>
+          <h3>Can’t install or download on a phone</h3>
+          <p>The server is being opened over plain HTTP. See <a href="#devices">Other devices</a>.</p>
+          <h3>A book didn’t import</h3>
+          <p>Only the formats under <a href="#books">Adding books</a> are accepted; other files in a folder are skipped. A file that is already in the library is skipped too.</p>
+          <h3>Something else</h3>
+          <p>Open an issue on <a href="https://github.com/clivingston33/sonnet/issues">GitHub</a>.</p>
+        </section>
+      </main>
+    </div>
+    <footer class="wrap">
+      <span>Sonnet is free software under the AGPL-3.0 licence.</span>
+      <a href="docs.html">Docs</a>
+      <a href="download.html">Download</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="https://github.com/clivingston33/sonnet">GitHub</a>
+    </footer>
+  </body>
+</html>
