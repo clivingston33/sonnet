@@ -4262,6 +4262,8 @@ function ImportPanel({
 /** Sign in to an existing account, or create one. */
 function SignIn({ onDone }: { onDone: () => void }) {
   const [options, setOptions] = useState({ first: false, signups: true, demo: false });
+  // Nothing is drawn until the server has said what to offer: a demo would flash the sign-in form first.
+  const [asked, setAsked] = useState(false);
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [sent, setSent] = useState<string | null>(null); // username a reset code was requested for
   const [show, setShow] = useState(false);
@@ -4274,7 +4276,8 @@ function SignIn({ onDone }: { onDone: () => void }) {
         setOptions(body);
         if (body.first) setMode("register"); // nobody to sign in as yet
       })
-      .catch(() => {});
+      .catch(() => {}) // unreachable: the ordinary form, whose own error says so
+      .finally(() => setAsked(true));
   }, []);
 
   const registering = mode === "register";
@@ -4326,6 +4329,7 @@ function SignIn({ onDone }: { onDone: () => void }) {
     </label>
   );
 
+  if (!asked) return null;
   // A public demo has no accounts to sign in to or create: one button lets the visitor in.
   if (options.demo)
     return (
