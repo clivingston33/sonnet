@@ -393,8 +393,12 @@ function CloudButton({ book }: { book: Book }) {
   );
 }
 
-/** Cover art, or a generated stand-in: ebooks and PDFs are always 2:3, audiobooks square. */
-function Cover({ book, w }: { book: Book; w: number }) {
+/**
+ * Cover art, or a generated stand-in: ebooks and PDFs are always 2:3, audiobooks square.
+ * With `fit`, a picture wider than that keeps its own shape and the cover grows sideways to
+ * show all of it (a comic's square cover, say), up to twice the width.
+ */
+function Cover({ book, w, fit }: { book: Book; w: number; fit?: boolean }) {
   const size = {
     width: w,
     height: book.kind === "audiobook" ? w : w * 1.5,
@@ -411,7 +415,7 @@ function Cover({ book, w }: { book: Book; w: number }) {
         alt=""
         loading="lazy"
         className={`${frame} bg-[#2e2e2e] object-cover`}
-        style={size}
+        style={fit ? { ...size, width: "auto", minWidth: w, maxWidth: w * 2 } : size}
       />
     );
 
@@ -512,10 +516,10 @@ function Grid({ books, group = false }: { books: Book[]; group?: boolean }) {
           // The halo of a selected book: the whole tile, from the cover down to its tag and menu.
           <div
             key={b.id}
-            className="-m-2 w-[204px] rounded-lg p-2 focus-within:bg-white/15"
+            className="-m-2 w-fit min-w-[204px] rounded-lg p-2 focus-within:bg-white/15"
             {...drag(b.id)}
           >
-            <CoverButton book={b} w={188} ids={ids} />
+            <CoverButton book={b} w={188} ids={ids} fit />
             <div className="mt-[10px] flex h-5 items-center gap-[6px] text-[#a8a8a8]">
               {b.kind === "audiobook" && <Icon name="headphones" className="size-4" />}
               {!b.file
@@ -3339,7 +3343,7 @@ function Search() {
  * click or Enter opens the book to read or listen. Details are in its ••• menu.
  * A div, not a button, so the tile around it stays draggable.
  */
-function CoverButton({ book, w, ids }: { book: Book; w: number; ids: string[] }) {
+function CoverButton({ book, w, ids, fit }: { book: Book; w: number; ids: string[]; fit?: boolean }) {
   const { setDetail, play, read } = useContext(LibCtx);
   const open = () =>
     !book.file
@@ -3359,7 +3363,7 @@ function CoverButton({ book, w, ids }: { book: Book; w: number; ids: string[] })
       onKeyDown={(e) => e.key === "Enter" && open()}
       className="w-fit shrink-0 cursor-pointer outline-none"
     >
-      <Cover book={book} w={w} />
+      <Cover book={book} w={w} fit={fit} />
     </div>
   );
 }
@@ -4212,6 +4216,42 @@ function SignIn({ onDone }: { onDone: () => void }) {
     </label>
   );
 
+  // A public demo has no accounts to sign in to or create: one button lets the visitor in.
+  if (options.demo)
+    return (
+      <main className="flex min-h-full items-center justify-center p-4">
+        <div className="w-[440px] max-w-full rounded-[28px] bg-[#2c2c2e] p-8 shadow-2xl">
+          <Logo className="size-9" />
+          <h1 className="mt-3 font-serif text-[28px] font-bold">Try Sonnet</h1>
+          <p className="mt-1 text-[14px] text-[#a0a0a0]">
+            A demo library of public-domain books, audiobooks and comics. No account needed; what you
+            do here is cleared after a day.
+          </p>
+          {error && (
+            <p role="alert" className="mt-4 text-[13px] text-[#ff6b61]">
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => send({ action: "demo" })}
+            className={`${primaryClass} mt-6 h-[38px] w-full disabled:opacity-60`}
+          >
+            Open the Demo
+          </button>
+          <a
+            href={DOCS}
+            target="_blank"
+            rel="noreferrer"
+            className="mx-auto mt-4 block w-fit text-[13px] text-[#a0a0a0] hover:text-white"
+          >
+            Docs
+          </a>
+        </div>
+      </main>
+    );
+
   return (
     <main className="flex min-h-full items-center justify-center p-4">
       <div className="w-[440px] max-w-full rounded-[28px] bg-[#2c2c2e] p-8 shadow-2xl">
@@ -4257,22 +4297,6 @@ function SignIn({ onDone }: { onDone: () => void }) {
               </button>
             ))}
           </div>
-        )}
-
-        {options.demo && mode === "login" && (
-          <>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => send({ action: "demo" })}
-              className={`${primaryClass} mt-6 h-[38px] w-full disabled:opacity-60`}
-            >
-              Try the Demo
-            </button>
-            <p className="mt-2 text-center text-[12px] text-[#8c8c8c]">
-              No account needed. What you do here is cleared after a day.
-            </p>
-          </>
         )}
 
         <form

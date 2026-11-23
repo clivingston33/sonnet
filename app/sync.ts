@@ -69,7 +69,12 @@ type Collection = { id: string; name: string; bookIds: string[] };
 type Layout = "Grid" | "List";
 export const SORTS = ["Recent", "Title", "Author", "Manual"] as const;
 type Sort = (typeof SORTS)[number];
-export type ReaderPrefs = { fontSize: number; theme: "dark" | "sepia" | "light" };
+export type ReaderPrefs = {
+  fontSize: number;
+  theme: "dark" | "sepia" | "light";
+  /** A gap between a comic's pages in the scrolling strip. On unless turned off. */
+  gaps?: boolean;
+};
 
 export type Saved = {
   books: Book[]; // in the user's manual order

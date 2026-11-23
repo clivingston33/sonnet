@@ -302,10 +302,12 @@ function ModeMenu({
   mode,
   options,
   onPick,
+  children,
 }: {
   mode: PageMode;
   options: [PageMode, string][];
   onPick: (mode: PageMode) => void;
+  children?: ReactNode;
 }) {
   return (
     <Popover
@@ -317,6 +319,7 @@ function ModeMenu({
       {options.map(([value, label]) => (
         <MenuItem key={value} label={label} checked={mode === value} onClick={() => onPick(value)} />
       ))}
+      {children}
     </Popover>
   );
 }
@@ -814,7 +817,8 @@ function PdfStripPage({ doc, n, width }: { doc: PDFDocumentProxy; n: number; wid
 }
 
 /** PDF pages drawn by pdf.js, or the images of a comic archive: a scrolling strip or one page at a time. */
-function PagedView({ book, onPatch, onClose }: Props) {
+function PagedView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
+  const gaps = prefs.gaps ?? true;
   const isPdf = extOf(book.file!) === "pdf";
   const area = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -994,7 +998,14 @@ function PagedView({ book, onPatch, onClose }: Props) {
               ["scroll", "Scroll Down"],
             ]}
             onPick={(mode) => onPatch({ mode })}
-          />
+          >
+            {mode === "scroll" && (
+              <>
+                {MENU_RULE}
+                <MenuItem label="Gaps Between Pages" checked={gaps} onClick={() => onPrefs({ gaps: !gaps })} />
+              </>
+            )}
+          </ModeMenu>
           {mode !== "scroll" && (
             // Not on phones: there a swipe or a tap on the page's edge turns it, and the toolbar is full.
             <span className="flex gap-1 max-md:hidden">
@@ -1029,7 +1040,8 @@ function PagedView({ book, onPatch, onClose }: Props) {
             if (at >= 0) go(at + 1);
           }}
           // A gap between pages, as in a printed volume's margins, so one page is told from the next.
-          className="relative min-h-0 grow space-y-3 overflow-y-auto bg-[#111]"
+          // Off for comics drawn as one unbroken strip (webtoons), whose panels run across the page breaks.
+          className={`relative min-h-0 grow overflow-y-auto bg-[#111] ${gaps ? "space-y-3" : ""}`}
         >
           {doc
             ? Array.from({ length: doc.numPages }, (_, i) => (

@@ -53,7 +53,7 @@ export async function GET(req: Request) {
   return Response.json({
     first, // no real account yet: the next one created becomes the admin
     demo: !!DEMO, // a public demo: the sign-in page offers a throwaway account
-    signups: first || signupsOpen(),
+    signups: !DEMO && (first || signupsOpen()),
     user,
     // The admin of a new server is walked through setting it up, once (see `Setup` in app/page.tsx).
     setup:
@@ -106,6 +106,8 @@ export async function POST(req: Request) {
     db.prepare("SELECT id FROM users WHERE username = ?").get(username)?.id;
 
   if (body.action === "register") {
+    // A demo has throwaway accounts only (the "demo" action below).
+    if (DEMO) return fail("Accounts are turned off in the demo.", 403);
     const admin = noAdmin();
     if (!admin && !signupsOpen())
       return fail("New accounts are turned off on this server. Ask its admin.", 403);
