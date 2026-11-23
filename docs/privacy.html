@@ -32,8 +32,29 @@
       <h2>What is stored, and where</h2>
       <p>
         Everything is kept on the computer that runs your server: accounts, shelves, ratings, reviews,
-        progress, reading time and the book files. Passwords are stored hashed, and so are sign-in
-        sessions. Whoever runs the server can read its database, as with any self-hosted software.
+        progress, bookmarks, highlights and notes, reading time and the book files. Passwords are stored
+        hashed, and so are sign-in sessions. Whoever runs the server can read its database, as with any
+        self-hosted software.
+      </p>
+
+      <h2>Reading without an account</h2>
+      <p>
+        <b>Continue Without an Account</b> makes a guest with no name or password, known to the server
+        only by a cookie in that browser, kept for up to 400 days. A guest whose cookie has run out is
+        deleted from the server, with what it held, the next time anyone continues without an account.
+      </p>
+      <p>
+        So that nothing is lost, a guest’s browser keeps a copy of their progress, bookmarks,
+        highlights, notes, shelves, settings and reading time in its own storage. If you choose a
+        backup folder, the same copy is written there as <code>sonnet-backup.json</code>, and the
+        browser remembers which folder it was. Neither copy is sent anywhere: both stay on your device.
+        Clearing the site’s data in the browser removes the first; the file is yours to delete.
+      </p>
+
+      <h2>The reader’s fonts</h2>
+      <p>
+        The typefaces you can choose in the reader are part of the app and are served by your own
+        server. Choosing one asks no other site for anything.
       </p>
 
       <h2>What the server sends</h2>
@@ -59,7 +80,8 @@
         The apps look for Sonnet servers with a broadcast that stays on your own network. When one opens
         it asks GitHub for the newest version, and says so if there is one; it never downloads or
         installs it. That check can be turned off: on the app’s first screen, or in the server’s tray
-        menu. They send nothing else.
+        menu. They send nothing else. A library kept on the computer itself is reached only by that
+        computer unless you choose to host it.
       </p>
 
       <h2>Building from the source</h2>

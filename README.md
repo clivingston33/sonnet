@@ -49,7 +49,7 @@ kept on your own server.
     <td><img src="docs/screenshots/search.webp" alt="Search results from the online catalogue"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/reader.png" alt="The reader showing a chapter of Frankenstein"></td>
+    <td><img src="docs/screenshots/reader.png" alt="The reader on a chapter of Frankenstein, with a highlight, the highlight toolbar and the appearance panel"></td>
     <td align="center"><img src="docs/screenshots/mobile.webp" width="230" alt="Home on a phone"></td>
   </tr>
 </table>
