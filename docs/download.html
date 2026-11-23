@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Download Sonnet for Windows, macOS and Docker</title>
-    <meta name="description" content="Download Sonnet, the free open-source ebook and audiobook reader, for Windows and macOS, or run it as a server with Docker or Node." />
+    <title>Download Sonnet for Windows, macOS, Linux and Docker</title>
+    <meta name="description" content="Download Sonnet, the free open-source ebook and audiobook reader, for Windows, macOS and Linux, or run it as a server with Docker or Node." />
     <link rel="canonical" href="https://clivingston33.github.io/sonnet/download.html" />
     <meta name="theme-color" content="#1e1e1e" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
@@ -32,24 +32,27 @@
       <h2>Which file?</h2>
       <div class="table">
         <table>
-          <tr><th>App</th><th>What it is</th><th>Windows</th><th>macOS</th></tr>
+          <tr><th>App</th><th>What it is</th><th>Windows</th><th>macOS</th><th>Linux</th></tr>
           <tr>
             <td><b>Sonnet</b></td>
             <td>The reader, in its own window. Opens a server, or keeps a library on this computer.</td>
             <td><code>Sonnet.Setup….exe</code></td>
             <td><code>Sonnet-….dmg</code></td>
+            <td><code>sonnet-desktop_….deb</code> or <code>Sonnet-….AppImage</code></td>
           </tr>
           <tr>
             <td><b>Sonnet Server</b></td>
             <td>Runs a library for the household from the system tray.</td>
             <td><code>Sonnet.Server.Setup….exe</code></td>
             <td><code>Sonnet.Server-….dmg</code></td>
+            <td>Use <a href="docs.html#docker">Docker</a></td>
           </tr>
         </table>
       </div>
       <p>
         Most people want <b>Sonnet</b>. On a Mac with Apple silicon take the file whose name ends in
-        <code>arm64</code>; on an Intel Mac take the other.
+        <code>arm64</code>; on an Intel Mac take the other. On Linux take the <code>.deb</code> on Debian,
+        Ubuntu and their relatives, and the <code>.AppImage</code> anywhere else.
       </p>
 
       <h2>The first time you open it</h2>
@@ -60,6 +63,11 @@
           <b>macOS:</b> open the app once, then go to System Settings → Privacy &amp; Security and choose
           <b>Open Anyway</b>. If macOS says the app is damaged, run
           <code>xattr -cr /Applications/Sonnet.app</code> in Terminal and open it again.
+        </li>
+        <li>
+          <b>Linux:</b> make the AppImage runnable first: <code>chmod +x Sonnet-*.AppImage</code>. If it
+          stops with a message about the sandbox, install the <code>.deb</code> instead, or start it
+          with <code>--no-sandbox</code>.
         </li>
       </ul>
 

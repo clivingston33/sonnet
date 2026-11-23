@@ -90,7 +90,8 @@ files when a folder is added, on Scan Now, and when someone opens the library af
 
 ## Desktop apps
 
-`desktop/` builds two apps for Windows and macOS, as Jellyfin has a server and a player:
+`desktop/` builds two apps for Windows and macOS, as Jellyfin has a server and a player, and the
+first of them for Linux (a server there is run with Docker):
 
 - **Sonnet Server** runs the library for a household from the system tray, on port 38916, for
   every device on the network. It opens its setup in your browser the first time.
@@ -112,7 +113,7 @@ npm run dist           # both installers for the system you are on: desktop/dist
 
 An installer has to be built on the system it is for; the Desktop workflow on GitHub builds
 them all when a `v*` tag is pushed. The installers are not code-signed, so Windows and macOS
-warn on first open.
+warn on first open. Linux gets a `.deb` and an AppImage.
 
 ## Configuration
 
