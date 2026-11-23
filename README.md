@@ -23,8 +23,13 @@ kept on your own server.
 
 - **Reads everything in the browser.** EPUB, PDF, CBZ and plain text, plus M4B, MP3, M4A, FLAC,
   OGG, Opus and WAV audiobooks. Multi-file audiobooks merge into one book with chapters.
-- **A reader with the usual tools.** Paged or scrolling, right-to-left for manga, dark, sepia and
-  light themes, bookmarks, highlights, search and a table of contents.
+- **A reader you can set up your way.** Paged or scrolling, right-to-left for manga, bookmarks,
+  search and a table of contents. Dark, dusk, sepia and light pages, seven typefaces, how much of
+  the screen the text takes, and sliders for light, warmth, grain and contrast.
+- **Highlights and notes.** Select text for a toolbar beside it: four colours, a note, copy. Tap a
+  highlight to recolour it, edit its note or delete it. Works with a finger as well as a mouse.
+- **No account needed.** Continue Without an Account reads as a guest tied to that browser, and
+  can keep a copy of your progress and highlights in a folder you choose.
 - **Metadata without API keys.** Covers, ratings, genres and series come from Open Library,
   Wikidata, Audible's public catalogue and AniList.
 - **Goals and stats.** Daily and yearly goals, streaks, and charts of reading time.
@@ -71,6 +76,9 @@ Open http://localhost:3000. The first account created is the admin's, and setup 
 folders your books are in, then who else may use the library. People sign themselves up, joining
 a family with its six-digit code; the admin can turn that off under Settings → Account and add
 each person there instead.
+
+While sign-ups are on, the sign-in page also offers **Continue Without an Account**. On a new
+server that guest runs it until the first account is created.
 
 Offline reading and installing to a home screen only work over HTTPS or on localhost, so put the
 server behind a reverse proxy such as Caddy, or Tailscale, to use them from other devices.
@@ -150,6 +158,12 @@ can turn off sharing its reading.
 
 **Search.** A new profile sees what is new and trending. Once it has started, finished, rated or
 wanted three books with a known genre, the rows follow its favourite genres and author.
+
+**Without an account.** A guest is known only by a cookie in that browser, kept for 400 days, and
+has no family, profiles or sharing. A copy of its progress, bookmarks, highlights, shelves and
+settings is kept in the browser, and in a folder of your choosing in Chrome, Edge or the desktop
+app (over HTTPS or on localhost). If the server forgets the guest, choosing that folder again
+brings the copy back. Settings → Account turns a guest into an account with everything in it.
 
 **Content.** Adult manga is never shown: AniList flags it and it is always excluded. Books are
 not filtered, and neither is anything you upload. Reviews are written by the people on the

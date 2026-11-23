@@ -5,8 +5,9 @@
 Key facts:
 
 - Formats read in the browser: EPUB, PDF, CBZ, TXT. Audiobooks: M4B, MP3, M4A, FLAC, OGG, Opus, WAV.
-- Reader: paged or scrolling, right-to-left for manga, dark, sepia and light themes, bookmarks, highlights, notes, search, table of contents.
+- Reader: paged or scrolling, right-to-left for manga, dark, dusk, sepia and light pages, seven typefaces, lighting sliders (light, warmth, grain, contrast), bookmarks, highlights in four colours, notes, search, table of contents.
 - Reading goals, streaks and stats; up to 8 profiles per sign-in; families that share shelves and reviews.
+- Can be used without an account: a guest tied to one browser, with a copy of its reading kept in the browser and optionally in a local folder.
 - Offline: installs to a phone's home screen over HTTPS and keeps chosen books on the device.
 - Install: desktop apps (Windows, macOS), Docker, or Node 24. One SQLite file; no API keys.
 - Not included: native phone apps, OPDS, e-reader sync, MOBI/AZW3/CBR, LDAP or single sign-on.

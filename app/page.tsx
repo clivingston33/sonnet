@@ -1471,7 +1471,7 @@ const HELP: [string, string][] = [
   ],
   [
     "Reading",
-    "EPUB, PDF, comic (CBZ) and text files open in the reader. In an EPUB you can search, jump by chapter, bookmark a page, change text size and theme, and select text to highlight it or add a note. Save a Copy in a book’s ••• menu puts its file in your downloads folder.",
+    "EPUB, PDF, comic (CBZ) and text files open in the reader. In an EPUB you can search, jump by chapter and bookmark a page. The text button changes the size, page colour, typeface, how much of the screen the text takes, and the lighting. Select text for a toolbar that highlights it in a colour, adds a note or copies it; tap a highlight to change or delete it. Save a Copy in a book’s ••• menu puts its file in your downloads folder.",
   ],
   [
     "Reading goals",
