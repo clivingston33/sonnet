@@ -13,10 +13,19 @@ const out = path.join(__dirname, "server");
 
 execSync("npx next build", { cwd: root, stdio: "inherit", env: { ...process.env, SONNET_DESKTOP: "1" } });
 fs.rmSync(out, { recursive: true, force: true });
-// Links are followed: Next links pdf.js into .next/node_modules by its full path on the machine
-// that built it, which leads nowhere once the app is installed on another (macOS and Linux).
 for (const part of ["server.js", "package.json", ".next", "node_modules"])
-  fs.cpSync(path.join(built, part), path.join(out, part), { recursive: true, dereference: true });
+  fs.cpSync(path.join(built, part), path.join(out, part), { recursive: true });
+// Next links pdf.js into .next/node_modules by its full path on the machine that built it, which
+// leads nowhere once the app is installed on another (macOS and Linux). Each link becomes the
+// folder it points to. Done by hand: cpSync's `dereference` leaves links inside a folder alone.
+const linked = path.join(out, ".next", "node_modules");
+for (const name of fs.existsSync(linked) ? fs.readdirSync(linked) : []) {
+  const link = path.join(linked, name);
+  if (!fs.lstatSync(link).isSymbolicLink()) continue;
+  const target = fs.realpathSync(link);
+  fs.rmSync(link);
+  fs.cpSync(target, link, { recursive: true });
+}
 // The standalone build leaves these two out; its server expects them beside it.
 fs.cpSync(path.join(root, ".next", "static"), path.join(out, ".next", "static"), { recursive: true });
 fs.cpSync(path.join(root, "public"), path.join(out, "public"), { recursive: true });
