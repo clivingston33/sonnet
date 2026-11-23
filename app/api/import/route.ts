@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rename, stat } from "node:fs/promises";
 import path from "node:path";
 import { kindOf } from "../../formats";
-import { authorize } from "../../server/auth";
+import { authorize, demoOff } from "../../server/auth";
 import { LIBRARY_DIR } from "../../server/db";
 import { saveBody } from "../../server/files";
 import { ingest } from "../../server/ingest";
@@ -16,7 +16,7 @@ const MAX_BYTES = Number(process.env.MAX_UPLOAD_MB ?? 2048) * 1024 * 1024;
  * became (see `ingest`).
  */
 export async function PUT(req: Request) {
-  const user = authorize(req, true);
+  const user = demoOff() ?? authorize(req, true);
   if (user instanceof Response) return user;
   const params = new URL(req.url).searchParams;
   const name = params.get("name") ?? "";

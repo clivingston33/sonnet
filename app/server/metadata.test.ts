@@ -66,6 +66,23 @@ test("EPUB3: belongs-to-collection, cover-image property, urn:isbn", async () =>
   assert.ok(meta.cover);
 });
 
+test("EPUB3: a collection of type set is a list the book is on, not its series", async () => {
+  const file = await epub(
+    "sets.epub",
+    `<package><metadata><title>Plain</title>
+      <meta id="a" property="belongs-to-collection">100 Best Novels</meta>
+      <meta property="collection-type" refines="#a">set</meta>
+      <meta property="group-position" refines="#a">40</meta>
+      <meta id="b" property="belongs-to-collection">Sherlock Holmes</meta>
+      <meta property="collection-type" refines="#b">series</meta>
+      <meta property="group-position" refines="#b">2</meta>
+    </metadata><manifest></manifest></package>`,
+  );
+  const meta = await readMeta(file);
+  assert.equal(meta.series, "Sherlock Holmes");
+  assert.equal(meta.seriesIndex, 2);
+});
+
 test("EPUB of page images (fixed layout) is a comic, read right to left when its spine says so", async () => {
   const file = await epub(
     "manga.epub",

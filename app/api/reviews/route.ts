@@ -1,4 +1,4 @@
-import { authorize } from "../../server/auth";
+import { authorize, demoOff } from "../../server/auth";
 import { db, getBook } from "../../server/db";
 
 /** GET ?book=<id>: what people on this server wrote about the book, newest first, with the stars they gave it. */
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
 /** PUT { book, text }: saves the signed-in user's review of the book; empty text removes it. */
 export async function PUT(req: Request) {
-  const user = authorize(req, true);
+  const user = demoOff() ?? authorize(req, true);
   if (user instanceof Response) return user;
   const body = await req.json().catch(() => null);
   const book: unknown = body?.book;

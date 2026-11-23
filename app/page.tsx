@@ -4147,7 +4147,7 @@ function ImportPanel({
 
 /** Sign in to an existing account, or create one. */
 function SignIn({ onDone }: { onDone: () => void }) {
-  const [options, setOptions] = useState({ first: false, signups: true });
+  const [options, setOptions] = useState({ first: false, signups: true, demo: false });
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [sent, setSent] = useState<string | null>(null); // username a reset code was requested for
   const [show, setShow] = useState(false);
@@ -4257,6 +4257,22 @@ function SignIn({ onDone }: { onDone: () => void }) {
               </button>
             ))}
           </div>
+        )}
+
+        {options.demo && mode === "login" && (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => send({ action: "demo" })}
+              className={`${primaryClass} mt-6 h-[38px] w-full disabled:opacity-60`}
+            >
+              Try the Demo
+            </button>
+            <p className="mt-2 text-center text-[12px] text-[#8c8c8c]">
+              No account needed. What you do here is cleared after a day.
+            </p>
+          </>
         )}
 
         <form

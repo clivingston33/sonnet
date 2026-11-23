@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
-import { db } from "./db";
+import { DEMO, db } from "./db";
 
 /**
  * Whoever is using the app: a profile. `account` is the profile that signs in (it has the
@@ -104,6 +104,10 @@ export function authorizeAdmin(req: Request, write = false): User | Response {
   if (user instanceof Response) return user;
   return user.admin ? user : Response.json({ error: "Only the admin can do that." }, { status: 403 });
 }
+
+/** On a public demo, the Response to return instead of taking in a visitor's file or words. */
+export const demoOff = () =>
+  DEMO ? Response.json({ error: "That is turned off in the demo." }, { status: 403 }) : null;
 
 // `Secure` only over HTTPS: a home server reached by plain http://ip would otherwise never get the cookie.
 // Without Max-Age the cookie goes when the browser closes.

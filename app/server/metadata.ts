@@ -79,8 +79,19 @@ async function epub(file: string): Promise<FileMeta> {
     return found ? attr(found, "content") : undefined;
   };
 
-  const collection = metas.find((m) => attr(m.attrs, "property") === "belongs-to-collection");
-  const position = metas.find((m) => attr(m.attrs, "property") === "group-position");
+  const property = (m: El, name: string) => attr(m.attrs, "property") === name;
+  /** What a `<meta refines="#id">` says about the element with that id. */
+  const refining = (el: El | undefined, name: string) => {
+    const id = el && attr(el.attrs, "id");
+    return id ? metas.find((m) => attr(m.attrs, "refines") === `#${id}` && property(m, name))?.text.trim() : undefined;
+  };
+  // A book can be in several collections. A "set" is a list it is on ("100 Best Novels"), not its series.
+  const collection = metas.find(
+    (m) => property(m, "belongs-to-collection") && refining(m, "collection-type") !== "set",
+  );
+  const position =
+    refining(collection, "group-position") ??
+    (collection && metas.find((m) => property(m, "group-position") && !attr(m.attrs, "refines"))?.text.trim());
   const identifiers = tags(opf, "identifier");
   const isbn =
     identifiers.find((i) => /isbn/i.test(i.attrs + i.text)) ??
@@ -99,7 +110,7 @@ async function epub(file: string): Promise<FileMeta> {
     author: tags(opf, "creator").map((c) => plain(c.text)).filter(Boolean).join(", ") || undefined,
     description: plain(tags(opf, "description")[0]?.text ?? ""),
     series: named("calibre:series") ?? (collection && plain(collection.text)),
-    seriesIndex: number(named("calibre:series_index") ?? position?.text.trim()),
+    seriesIndex: number(named("calibre:series_index") ?? position),
     isbn: isbn && isbnOf(decode(isbn.text)),
     cover: coverFile ? await coverFile.async("uint8array") : undefined,
     // Fixed-layout EPUBs are how manga and comics are packaged; comic converters also say so outright.

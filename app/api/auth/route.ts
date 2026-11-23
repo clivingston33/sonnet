@@ -10,7 +10,7 @@ import {
   startSession,
   switchProfile,
 } from "../../server/auth";
-import { db } from "../../server/db";
+import { DEMO, db } from "../../server/db";
 import { lanAddresses } from "../../server/discovery";
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
@@ -52,6 +52,7 @@ export async function GET(req: Request) {
   const family = user && familyOf(user.account);
   return Response.json({
     first, // no real account yet: the next one created becomes the admin
+    demo: !!DEMO, // a public demo: the sign-in page offers a throwaway account
     signups: first || signupsOpen(),
     user,
     // The admin of a new server is walked through setting it up, once (see `Setup` in app/page.tsx).
@@ -143,6 +144,18 @@ export async function POST(req: Request) {
     }
     misses.delete(username);
     return signIn(Number(row.id), body.remember === true);
+  }
+
+  // A public demo: every visitor gets an account of their own, so they don't share progress or shelves.
+  // ponytail: nothing limits how many are made; count per address if the demo gets hammered.
+  if (body.action === "demo" && DEMO) {
+    // Earlier visitors' accounts go once their day-long session has ended.
+    db.prepare(
+      `DELETE FROM users WHERE username LIKE 'demo-%@local' AND id NOT IN (
+         SELECT coalesce(u.owner, u.id) FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.expires > ?)`,
+    ).run(Date.now());
+    // Like a profile's, the name has an "@" and the password is unknown: nobody can sign in to it.
+    return signIn(create("Guest", "", `demo-${randomUUID()}@local`, randomUUID()), false);
   }
 
   // There is no mail server, so the code goes to the admin (Settings → Account) and the server log.

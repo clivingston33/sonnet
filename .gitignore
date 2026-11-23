@@ -48,3 +48,6 @@ next-env.d.ts
 
 # server data
 /data
+
+# the demo library (node demo/fetch.mjs)
+/demo/books

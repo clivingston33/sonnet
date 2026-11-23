@@ -6,7 +6,7 @@
 
 A self-hosted library and reader for ebooks, audiobooks, PDFs and manga.
 
-<img src="docs/screenshots/library.webp" alt="The library, a grid of book covers">
+<img src="docs/screenshots/demo.webp" alt="Opening a novel, then an audiobook, then a comic from the library">
 
 </div>
 

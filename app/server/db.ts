@@ -7,6 +7,11 @@ export const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data")
 /** The imported book and audio files. */
 export const LIBRARY_DIR = process.env.LIBRARY_DIR ?? path.join(process.cwd(), "library");
 export const COVER_DIR = path.join(DATA_DIR, "covers");
+/**
+ * Set (SONNET_DEMO) on a public demo to the folder holding its books. Visitors then get a
+ * throwaway account with one click, and can't upload files, covers or reviews for each other to see.
+ */
+export const DEMO = process.env.SONNET_DEMO;
 
 /** Only names the server generated are ever opened or deleted, so a request can't reach other paths. */
 export const STORED = /^[0-9a-f-]{36}\.[a-z0-9]+$/;
