@@ -87,23 +87,24 @@
         <section id="docker">
           <h2>Docker</h2>
           <p>The usual way to run Sonnet on a home server or NAS.</p>
-          <pre>git clone https://github.com/clivingston33/sonnet
-cd sonnet
-docker compose up -d --build</pre>
+          <pre>docker run -d --name sonnet --restart unless-stopped -p 3000:3000 \
+  -v ./data:/data -v ./library:/library ghcr.io/clivingston33/sonnet</pre>
           <p>
             Open <code>http://localhost:3000</code>, or the server’s address from another device. The
-            database is kept in <code>./data</code> and imported files in <code>./library</code>, beside
-            <code>compose.yaml</code>.
+            database is kept in <code>./data</code> and imported files in <code>./library</code>, in the
+            folder the command was run from. To update, <code>docker pull ghcr.io/clivingston33/sonnet</code>,
+            then <code>docker rm -f sonnet</code> and run the command again.
+          </p>
+          <p>
+            The repository’s <code>compose.yaml</code> does the same with <code>docker compose up -d</code>;
+            add <code>--build</code> to build from source.
           </p>
           <h3>Books already on the server</h3>
           <p>
-            Mount the folder into the container, read-only, in <code>compose.yaml</code>, then add the path
+            Mount the folder into the container, read-only, with one more <code>-v</code>, then add the path
             inside the container (<code>/books</code>) under Settings → Library:
           </p>
-          <pre>    volumes:
-      - ./data:/data
-      - ./library:/library
-      - /mnt/books:/books:ro</pre>
+          <pre>  -v /mnt/books:/books:ro</pre>
           <p class="note">
             The Sonnet app finds servers by a broadcast on UDP port 38918. In Docker that only works with
             host networking. Typing the address always works.

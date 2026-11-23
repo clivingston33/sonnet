@@ -1,4 +1,5 @@
-# Run with `docker compose up --build`.
+# Published as ghcr.io/clivingston33/sonnet by .github/workflows/docker.yml.
+# Build locally with `docker compose up --build`.
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package*.json ./

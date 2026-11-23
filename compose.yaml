@@ -1,5 +1,6 @@
 services:
   library:
+    image: ghcr.io/clivingston33/sonnet # the published image; `--build` builds this source instead
     build: .
     ports:
       - "3000:3000"

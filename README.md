@@ -50,11 +50,13 @@ kept on your own server.
 
 ## Run
 
-With Docker:
+With Docker, from the folder that should hold the library:
 
 ```
-docker compose up --build
+docker run -d --name sonnet --restart unless-stopped -p 3000:3000 -v ./data:/data -v ./library:/library ghcr.io/clivingston33/sonnet
 ```
+
+Or from a clone, `docker compose up -d` (add `--build` to build this source instead of pulling).
 
 Or with Node 24 (the app uses the built-in `node:sqlite`):
 
@@ -80,8 +82,8 @@ files when a folder is added, on Scan Now, and when someone opens the library af
 
 - Removing a book takes it out of the library; its file stays in the folder and is not picked up
   again. Removing the folder and adding it back brings everything in it back.
-- With Docker, mount the folders into the container (`- /mnt/books:/books:ro` under `volumes:`)
-  and add the path inside it (`/books`).
+- With Docker, mount the folders into the container (`-v /mnt/books:/books:ro`) and add the path
+  inside it (`/books`).
 - Files can still be uploaded from any device (Import). Those are copied into `LIBRARY_DIR`.
 - A file deleted from a folder keeps its book until the book is removed in Sonnet.
 

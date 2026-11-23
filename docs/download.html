@@ -71,9 +71,8 @@
 
       <h2>Run a server</h2>
       <p>On a home server or NAS, with Docker:</p>
-      <pre>git clone https://github.com/clivingston33/sonnet
-cd sonnet
-docker compose up -d --build</pre>
+      <pre>docker run -d --name sonnet --restart unless-stopped -p 3000:3000 \
+  -v ./data:/data -v ./library:/library ghcr.io/clivingston33/sonnet</pre>
       <p>
         Then open <code>http://localhost:3000</code>. The <a href="docs.html#docker">docs</a> cover folders,
         other devices and backups, and running it with <a href="docs.html#node">Node</a> instead.
