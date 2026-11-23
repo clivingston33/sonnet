@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Sends the committed code to the home server and restarts the app there.
 # The app lives in Proxmox container 105 ("sonnet"): code in /opt/books, data in /srv/books.
+# DEPLOY_CT=106 is the public demo ("sonnet-demo"), which runs in demo mode with its own books.
 set -euo pipefail
 HOST=${DEPLOY_HOST:?set DEPLOY_HOST to the Proxmox host, e.g. root@proxmox.lan}
 CT=${DEPLOY_CT:-105}

@@ -14,6 +14,7 @@ Sonnet is one Next.js app with one SQLite file, built the way Jellyfin is: a ser
 the library, and a browser or the Sonnet app on any device to read and listen with. Progress is
 kept on your own server.
 
+**[Live demo](https://sonnet-demo.clivingston.dev)** ·
 **[Website](https://clivingston33.github.io/sonnet/)** ·
 **[Docs](https://clivingston33.github.io/sonnet/docs.html)** ·
 **[Download](https://clivingston33.github.io/sonnet/download.html)**
