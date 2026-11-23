@@ -4,6 +4,7 @@
   "version": "0.1.4",
   "description": "Sonnet for the desktop: the app that opens a library, and the server for a household.",
   "author": "clivingston33",
+  "homepage": "https://clivingston33.github.io/sonnet/",
   "license": "AGPL-3.0-only",
   "private": true,
   "main": "main.js",
