@@ -13,8 +13,10 @@ const out = path.join(__dirname, "server");
 
 execSync("npx next build", { cwd: root, stdio: "inherit", env: { ...process.env, SONNET_DESKTOP: "1" } });
 fs.rmSync(out, { recursive: true, force: true });
+// Links are followed: Next links pdf.js into .next/node_modules by its full path on the machine
+// that built it, which leads nowhere once the app is installed on another (macOS and Linux).
 for (const part of ["server.js", "package.json", ".next", "node_modules"])
-  fs.cpSync(path.join(built, part), path.join(out, part), { recursive: true });
+  fs.cpSync(path.join(built, part), path.join(out, part), { recursive: true, dereference: true });
 // The standalone build leaves these two out; its server expects them beside it.
 fs.cpSync(path.join(root, ".next", "static"), path.join(out, ".next", "static"), { recursive: true });
 fs.cpSync(path.join(root, "public"), path.join(out, "public"), { recursive: true });
