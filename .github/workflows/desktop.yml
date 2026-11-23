@@ -1,5 +1,7 @@
 # Builds the desktop installers. A macOS one can only be built on a Mac, and each holds the
 # server built for its own system, so every system builds its own here.
+# Linux gets Sonnet only: Sonnet Server lives in the system tray, which Linux desktops don't
+# reliably have, and a server there is run with Docker.
 name: Desktop
 on:
   push:
@@ -12,7 +14,7 @@ jobs:
       contents: write # to attach the installers to the release
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, macos-15-intel]
+        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -25,13 +27,15 @@ jobs:
       - run: npm ci
         working-directory: .
       - run: npm ci
-      - run: npm run dist
+      - run: npm run ${{ runner.os == 'Linux' && 'dist:app' || 'dist' }}
       - uses: actions/upload-artifact@v4
         with:
           name: sonnet-${{ matrix.os }}
           path: |
             desktop/dist/*.exe
             desktop/dist/*.dmg
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
             desktop/dist/server/*.exe
             desktop/dist/server/*.dmg
       # A tag publishes them: the release is where the website's Download button leads.
@@ -42,4 +46,4 @@ jobs:
         run: |
           shopt -s nullglob
           gh release create "$GITHUB_REF_NAME" --generate-notes || true # another system's job made it first
-          gh release upload "$GITHUB_REF_NAME" dist/*.exe dist/*.dmg dist/server/*.exe dist/server/*.dmg --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/server/*.exe dist/server/*.dmg --clobber

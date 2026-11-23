@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node build-server.js && electron .",
     "start:server": "node build-server.js && electron . --server",
-    "dist": "node build-server.js && electron-builder && electron-builder --config server-build.json"
+    "dist": "node build-server.js && electron-builder && electron-builder --config server-build.json",
+    "dist:app": "node build-server.js && electron-builder"
   },
   "devDependencies": {
     "electron": "^45.4.1",
@@ -23,6 +24,11 @@
     "afterPack": "after-pack.js",
     "icon": "icon.png",
     "win": { "target": "nsis" },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Office",
+      "maintainer": "clivingston33 <217951326+clivingston33@users.noreply.github.com>"
+    },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.books"
