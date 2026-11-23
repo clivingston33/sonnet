@@ -858,7 +858,7 @@ function Home() {
         // On phones: one row of smaller covers to swipe through, so the page below stays in reach.
         <section className="mb-[34px] flex shrink-0 items-end gap-x-[27px] gap-y-8 max-md:-mx-[22px] max-md:overflow-x-auto max-md:px-[22px] max-md:[zoom:0.72] md:mr-[33px] md:flex-wrap">
           {reading.map((b) => (
-            <div key={b.id} className="w-[188px] shrink-0">
+            <div key={b.id} className="w-fit min-w-[188px] shrink-0">
               <div
                 role="button"
                 tabIndex={0}
@@ -867,9 +867,10 @@ function Home() {
                 onKeyDown={(e) => e.key === "Enter" && open(b)}
                 className="cursor-pointer"
               >
-                <Cover book={b} w={188} />
+                <Cover book={b} w={188} fit />
               </div>
-              <p className="mt-3 truncate text-[15px]" data-tip={b.title}>
+              {/* As wide as the cover, however long the title: it adds nothing to the tile's width. */}
+              <p className="mt-3 w-0 min-w-full truncate text-[15px]" data-tip={b.title}>
                 {b.title}
               </p>
               <div className="mt-1 flex items-center justify-between text-[13px] text-[#9a9a9a]">
