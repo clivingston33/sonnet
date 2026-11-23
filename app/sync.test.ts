@@ -1,7 +1,7 @@
 // Run: node --test app/sync.test.ts
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_PREFS, applyBatch, diff, mergeBatch, type Book, type Saved } from "./sync.ts";
+import { DEFAULT_PREFS, applyBatch, backupOf, diff, mergeBatch, restore, type Book, type Saved } from "./sync.ts";
 
 const book = (id: string, extra: Partial<Book> = {}): Book => ({
   id,
@@ -73,4 +73,21 @@ test("offline: batches merge (time adds, later fields win) and can be laid over 
   assert.deepEqual(shown.books, [book("a", { progress: 0.5, page: 4 })]);
   assert.equal(shown.dailyGoal, 20);
   assert.deepEqual(shown.log, { "2026-01-01": 60 }); // time is not applied twice
+});
+
+test("a guest's backup puts their progress, settings and reading time back on a fresh account", () => {
+  const before = state({
+    books: [book("a", { progress: 0.5, highlights: [{ cfi: "x", text: "t", added: 1 }] }), book("gone", { rating: 5 })],
+    dailyGoal: 20,
+    log: { "2026-01-01": 60, "2026-01-02": 30 },
+  });
+  const backup = JSON.parse(JSON.stringify(backupOf(7, before)));
+  assert.deepEqual(backup.books.map((b: { id: string }) => b.id), ["a", "gone"]);
+  const fresh = state({ books: [book("a", { title: "Server Title" }), book("b")], log: {} });
+  const back = restore(fresh, backup);
+  assert.equal(back.books[0].progress, 0.5);
+  assert.equal(back.books[0].title, "Server Title"); // shared fields stay the server's
+  assert.equal(back.books.length, 2);
+  assert.equal(back.dailyGoal, 20);
+  assert.deepEqual(restore(back, backup).log, before.log); // twice is the same as once
 });

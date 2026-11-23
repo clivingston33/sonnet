@@ -4,8 +4,9 @@ import { DEMO, db } from "./db";
 /**
  * Whoever is using the app: a profile. `account` is the profile that signs in (it has the
  * username and password); the profiles under it share that sign-in, like profiles on a streaming service.
+ * `guest`: made by "Continue without an account"; it has no username or password to sign in with.
  */
-export type User = { id: number; account: number; name: string; username: string; admin: boolean };
+export type User = { id: number; account: number; name: string; username: string; admin: boolean; guest: boolean };
 
 const DAY = 60 * 60 * 24; // seconds
 
@@ -45,6 +46,7 @@ export function currentUser(req: Request): User | null {
         name: `${row.first} ${row.last}`.trim(),
         username: String(row.username),
         admin: !!row.admin,
+        guest: /^guest-.*@local$/.test(String(row.username)),
       }
     : null;
 }
@@ -159,11 +161,11 @@ const cookie = (req: Request, value: string, maxAge?: number) =>
 
 /**
  * Creates a session and returns the Set-Cookie header value for it.
- * `remember` keeps it for 30 days; otherwise it ends with the browser, or after a day.
+ * `remember` keeps it for `days`; otherwise it ends with the browser, or after a day.
  */
-export function startSession(req: Request, userId: number, remember: boolean) {
+export function startSession(req: Request, userId: number, remember: boolean, days = 30) {
   const token = randomBytes(32).toString("hex");
-  const life = remember ? 30 * DAY : DAY;
+  const life = remember ? days * DAY : DAY;
   db.prepare("DELETE FROM sessions WHERE expires < ?").run(Date.now());
   db.prepare("INSERT INTO sessions (token, user_id, expires) VALUES (?, ?, ?)").run(
     digest(token),

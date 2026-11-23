@@ -27,7 +27,8 @@ export type Found = {
 };
 
 export type Mark = { at: string; label: string; added: number };
-export type Highlight = { cfi: string; text: string; note?: string; added: number };
+/** `color` is a key of the reader's highlight colours; without one it is yellow. */
+export type Highlight = { cfi: string; text: string; note?: string; color?: string; added: number };
 
 export type Book = {
   id: string;
@@ -71,7 +72,16 @@ export const SORTS = ["Recent", "Title", "Author", "Manual"] as const;
 type Sort = (typeof SORTS)[number];
 export type ReaderPrefs = {
   fontSize: number;
-  theme: "dark" | "sepia" | "light";
+  theme: "dark" | "dusk" | "sepia" | "light";
+  /** A key of the reader's fonts; without one, the default. */
+  font?: string;
+  /** How much of the page's height the text takes, in percent: 100, 80, 60 or 40. */
+  fill?: number;
+  // Lighting, each in percent. Light and contrast rest at 100; warmth and grain at 0.
+  light?: number;
+  warmth?: number;
+  grain?: number;
+  contrast?: number;
   /** A gap between a comic's pages in the scrolling strip. On unless turned off. */
   gaps?: boolean;
 };
@@ -229,4 +239,46 @@ export function applyBatch(state: Saved, batch: Batch): Saved {
     });
   const { order: _order, ...prefs } = batch.prefs ?? {};
   return { ...state, ...prefs, books };
+}
+
+/**
+ * What someone reading without an account keeps outside the server (in the browser, and in a
+ * folder they chose): everything that is theirs, so it can be put back if the server forgets them.
+ */
+export type Backup = {
+  user: number; // the guest it was taken from
+  books: Fields[]; // id, title and the per-user fields of each book that has any
+  prefs: Fields;
+  log: Record<string, number>;
+};
+
+export function backupOf(user: number, state: Saved): Backup {
+  const books: Fields[] = [];
+  for (const book of state.books) {
+    const mine = Object.fromEntries(USER_FIELDS.flatMap((key) => (book[key] === undefined ? [] : [[key, book[key]]])));
+    if (Object.keys(mine).length) books.push({ id: book.id, title: book.title, ...mine });
+  }
+  return {
+    user,
+    books,
+    prefs: Object.fromEntries(PREF_KEYS.map((key) => [key, state[key]])),
+    log: state.log,
+  };
+}
+
+/** A state with a backup laid over it. Books the library no longer has are skipped. */
+export function restore(state: Saved, backup: Backup): Saved {
+  const kept = new Map(backup.books.map((b) => [b.id, b]));
+  const log = { ...state.log };
+  // The larger of the two, not the sum: restoring the same backup twice must not double the time.
+  for (const [day, seconds] of Object.entries(backup.log ?? {})) log[day] = Math.max(log[day] ?? 0, seconds);
+  return {
+    ...state,
+    ...Object.fromEntries(PREF_KEYS.flatMap((key) => (key in (backup.prefs ?? {}) ? [[key, backup.prefs[key]]] : []))),
+    books: state.books.map((book) => {
+      const { id: _id, title: _title, ...mine } = kept.get(book.id) ?? {};
+      return { ...book, ...mine };
+    }),
+    log,
+  };
 }

@@ -7,6 +7,7 @@ import type { Book as EpubBook, Contents, Location, NavItem, Rendition } from "e
 import type Section from "epubjs/types/section";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import type { Book, Highlight, PageMode, ReaderPrefs } from "./sync";
+import { FONTS, fontOf } from "./fonts";
 import {
   EmptyState,
   Icon,
@@ -34,9 +35,41 @@ type Props = {
 
 const THEMES = {
   dark: { bg: "#1e1e1e", fg: "#e6e6e6" },
+  dusk: { bg: "#cfd2ce", fg: "#2a2c2a" },
   sepia: { bg: "#f4ecd8", fg: "#3b2f1e" },
   light: { bg: "#ffffff", fg: "#1a1a1a" },
 };
+const THEME_NAMES = Object.keys(THEMES) as ReaderPrefs["theme"][];
+const HIGHLIGHTS: Record<string, string> = {
+  yellow: "#f5c518",
+  green: "#4cc38a",
+  blue: "#4aa8ff",
+  pink: "#ff6fa5",
+};
+const tint = (h: Highlight) => HIGHLIGHTS[h.color ?? ""] ?? HIGHLIGHTS.yellow;
+/** Paper grain: a tile of grey noise, laid over the page. */
+const GRAIN = `url("data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>",
+)}")`;
+
+/** The app's own @font-face rules, for a book's frame: that is a document of its own and has none. */
+function faces() {
+  let css = "";
+  for (const sheet of document.styleSheets) {
+    try {
+      for (const rule of sheet.cssRules)
+        if (rule instanceof CSSFontFaceRule)
+          // The frame's addresses are the book's, so the font files are named in full.
+          css += rule.cssText.replace(
+            /url\("?([^")]+)"?\)/g,
+            (_, url) => `url("${new URL(url, sheet.href ?? location.href)}")`,
+          );
+    } catch {
+      // a stylesheet from another site can't be read
+    }
+  }
+  return css;
+}
 const src = (book: Book) => `/api/file?file=${book.file}`;
 // `current` so the hover shows on light pages as well as dark ones.
 const iconButton = "rounded-lg p-1 hover:bg-current/10 aria-pressed:bg-current/15";
@@ -125,6 +158,7 @@ function paint(r: Rendition, prefs: Props["prefs"]) {
   const { bg, fg } = THEMES[prefs.theme];
   r.themes.override("color", fg, true);
   r.themes.override("background", bg, true);
+  r.themes.override("font-family", fontOf(prefs.font), true);
   r.themes.fontSize(`${prefs.fontSize}%`);
 }
 
@@ -143,6 +177,7 @@ function Shell({
   status,
   onTurn,
   wideEdges,
+  prefs,
   children,
 }: {
   book: Book;
@@ -154,10 +189,8 @@ function Shell({
   tone?: { bg: string; fg: string }; // page colours
   status?: string; // bottom-left line, e.g. the chapter
   onTurn?: (by: -1 | 1) => void; // given: the page's side margins turn the page
-  // Each side's 45% of the page turns it. "touch": only on touch screens, where a clear sheet
-  // over the book takes every tap and swipe (the usual way with epub.js, whose book sits in a
-  // frame that keeps touches to itself). The price there: text in the book cannot be selected.
-  wideEdges?: boolean | "touch";
+  wideEdges?: boolean; // each side's 45% of the page turns it
+  prefs?: ReaderPrefs; // for the lighting
   children: ReactNode;
 }) {
   useEffect(() => {
@@ -174,22 +207,20 @@ function Shell({
     turnRef.current = onTurn;
   });
   const [swiped] = useState(() => swipe((by) => turnRef.current?.(by)));
-  // Whether a finger was the last thing used. Watched, because what a device says about itself
-  // is not reliable: some touch screens report a mouse.
-  const [touch, setTouch] = useState(() => typeof navigator !== "undefined" && navigator.maxTouchPoints > 0);
-  useEffect(() => {
-    const used = (e: PointerEvent) => setTouch(e.pointerType !== "mouse");
-    window.addEventListener("pointerdown", used, true);
-    return () => window.removeEventListener("pointerdown", used, true);
-  }, []);
-  const sheet = wideEdges === "touch" && touch; // the clear sheet over a book is up
+  const light = prefs?.light ?? 100;
+  const contrast = prefs?.contrast ?? 100;
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={`Reading ${book.title}`}
       className="fixed inset-0 z-[45] flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
-      style={{ background: tone.bg, color: tone.fg }}
+      style={{
+        background: tone.bg,
+        color: tone.fg,
+        filter:
+          light !== 100 || contrast !== 100 ? `brightness(${light}%) contrast(${contrast}%)` : undefined,
+      }}
       onMouseMove={(e) => setNear(e.clientY < 150)}
       onMouseLeave={() => setNear(false)}
     >
@@ -219,7 +250,6 @@ function Shell({
         onTouchEnd={swiped.end}
       >
         <div className="relative flex min-w-0 grow flex-col">{children}</div>
-        {sheet && <div aria-hidden className="absolute inset-0" />}
         {onTurn &&
           ([-1, 1] as const).map((by) => (
             <button
@@ -227,7 +257,7 @@ function Shell({
               aria-label={by < 0 ? "Page to the left" : "Page to the right"}
               onClick={() => onTurn(by)}
               // As wide as the margin beside the 720px page, and never too narrow to tap.
-              className={`group absolute inset-y-0 flex items-center ${wideEdges === true || sheet ? "w-[45%]" : "w-[max(44px,calc((100%-760px)/2))]"} ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
+              className={`group absolute inset-y-0 flex items-center ${wideEdges ? "w-[45%]" : "w-[max(44px,calc((100%-760px)/2))]"} ${by < 0 ? "left-0 justify-start pl-3" : "right-0 justify-end pr-3"}`}
             >
               <Icon
                 name={by < 0 ? "chevronLeft" : "chevronRight"}
@@ -254,6 +284,21 @@ function Shell({
         <span className="truncate">{status ?? book.author}</span>
         <span>{Math.round((book.progress ?? 0) * 100)}%</span>
       </p>
+      {/* Lighting, over everything and out of the pointer's way: a warm cast and paper grain. */}
+      {!!prefs?.warmth && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-30 bg-[#ff8a1f] mix-blend-multiply"
+          style={{ opacity: prefs.warmth * 0.004 }}
+        />
+      )}
+      {!!prefs?.grain && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-30"
+          style={{ backgroundImage: GRAIN, opacity: prefs.grain * 0.004 }}
+        />
+      )}
     </div>
   );
 }
@@ -324,34 +369,108 @@ function ModeMenu({
   );
 }
 
-/** Font size and theme menu, for the formats the app lays out itself. */
-function Appearance({ prefs, onPrefs }: Pick<Props, "prefs" | "onPrefs">) {
+const groupLabel = "px-[6px] pt-3 pb-1 text-[11px] font-bold text-[#8c8c8c]";
+const segment =
+  "h-[30px] grow basis-0 rounded-lg text-[13px] font-bold hover:bg-white/10 aria-pressed:bg-white/20 max-md:h-[38px]";
+/** The lighting sliders: preference, label, range, and where each rests. */
+const LIGHTING = [
+  ["light", "Light", 30, 100, 100],
+  ["warmth", "Warmth", 0, 100, 0],
+  ["grain", "Grain", 0, 100, 0],
+  ["contrast", "Contrast", 60, 140, 100],
+] as const;
+
+/** Lighting for every format; with `text` (the formats the app lays out itself) also size, colours, font and how much text a page holds. */
+function Appearance({ prefs, onPrefs, text = true }: Pick<Props, "prefs" | "onPrefs"> & { text?: boolean }) {
+  const fill = prefs.fill ?? 100;
   return (
     <Popover
-      label="Text size and theme"
+      label="Appearance"
       button={<Icon name="text" className="size-5" />}
       buttonClass={iconButton}
-      panelClass="top-8 right-0 w-[170px] max-md:w-[240px]"
+      panelClass="w-[260px] max-md:w-[300px]"
     >
-      <MenuItem
-        label={`Larger text (${prefs.fontSize}%)`}
-        checked={false}
-        onClick={() => onPrefs({ fontSize: Math.min(200, prefs.fontSize + 10) })}
-      />
-      <MenuItem
-        label="Smaller text"
-        checked={false}
-        onClick={() => onPrefs({ fontSize: Math.max(70, prefs.fontSize - 10) })}
-      />
-      {MENU_RULE}
-      {(["dark", "sepia", "light"] as const).map((theme) => (
-        <MenuItem
-          key={theme}
-          label={theme[0].toUpperCase() + theme.slice(1)}
-          checked={prefs.theme === theme}
-          onClick={() => onPrefs({ theme })}
-        />
-      ))}
+      {/* A menu closes when something in it is clicked; these are adjusted, so the click stops here. */}
+      <div onClick={(e) => e.stopPropagation()} className="p-[6px]">
+        {text && (
+          <>
+            <div className="flex gap-1">
+              <button
+                aria-label="Smaller text"
+                className={segment}
+                onClick={() => onPrefs({ fontSize: Math.max(70, prefs.fontSize - 10) })}
+              >
+                A−
+              </button>
+              <span className="flex grow basis-0 items-center justify-center text-[13px]">{prefs.fontSize}%</span>
+              <button
+                aria-label="Larger text"
+                className={`${segment} !text-[17px]`}
+                onClick={() => onPrefs({ fontSize: Math.min(200, prefs.fontSize + 10) })}
+              >
+                A+
+              </button>
+            </div>
+            <div className="mt-3 flex justify-between px-3">
+              {THEME_NAMES.map((theme) => (
+                <button
+                  key={theme}
+                  aria-label={`${theme[0].toUpperCase() + theme.slice(1)} page`}
+                  aria-pressed={prefs.theme === theme}
+                  onClick={() => onPrefs({ theme })}
+                  className="size-9 rounded-full border border-white/25 font-serif text-[15px] outline-offset-2 outline-white aria-pressed:outline-2"
+                  style={{ background: THEMES[theme].bg, color: THEMES[theme].fg }}
+                >
+                  Aa
+                </button>
+              ))}
+            </div>
+            <select
+              aria-label="Font"
+              value={prefs.font && prefs.font in FONTS ? prefs.font : "georgia"}
+              onChange={(e) => onPrefs({ font: e.target.value })}
+              className={`${controlClass} mt-3 w-full`}
+            >
+              {Object.entries(FONTS).map(([key, font]) => (
+                <option key={key} value={key}>
+                  {font.label}
+                </option>
+              ))}
+            </select>
+            <p className={groupLabel}>Text on Screen</p>
+            <div className="flex gap-1">
+              {[100, 80, 60, 40].map((n) => (
+                <button key={n} aria-pressed={fill === n} className={segment} onClick={() => onPrefs({ fill: n })}>
+                  {n === 100 ? "Full" : `${n}%`}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <p className={groupLabel}>Lighting</p>
+        {LIGHTING.map(([key, label, min, max, rest]) => (
+          <label key={key} className="flex items-center gap-3 px-[6px] py-[5px] text-[13px]">
+            <span className="w-[62px] shrink-0">{label}</span>
+            <input
+              type="range"
+              min={min}
+              max={max}
+              step={5}
+              value={prefs[key] ?? rest}
+              onChange={(e) => onPrefs({ [key]: Number(e.target.value) })}
+              className="min-w-0 grow"
+            />
+          </label>
+        ))}
+        {LIGHTING.some(([key, , , , rest]) => (prefs[key] ?? rest) !== rest) && (
+          <button
+            className={`${segment} mt-1 w-full`}
+            onClick={() => onPrefs({ light: 100, warmth: 0, grain: 0, contrast: 100 })}
+          >
+            Reset Lighting
+          </button>
+        )}
+      </div>
     </Popover>
   );
 }
@@ -397,7 +516,10 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
   const [toc, setToc] = useState<NavItem[]>([]);
   const [at, setAt] = useState<{ cfi: string; href: string } | null>(null);
   const [panel, setPanel] = useState<"Contents" | "Bookmarks" | "Highlights" | "Search" | null>(null);
-  const [selection, setSelection] = useState<{ cfi: string; text: string } | null>(null);
+  // The toolbar beside selected text or a tapped highlight, with where on the screen that is.
+  const [pop, setPop] = useState<{ cfi: string; text: string; x: number; top: number; bottom: number } | null>(null);
+  const [noting, setNoting] = useState<string | null>(null); // cfi of the highlight whose note is being written
+  const tapped = useRef(false); // the last click landed on a highlight
   const [found, setFound] = useState<Found[] | "searching" | null>(null);
   const [broken, setBroken] = useState(false);
   const [ready, setReady] = useState(false); // the first page is on screen
@@ -405,12 +527,26 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
   const bookmarks = book.bookmarks ?? [];
   const highlights = book.highlights ?? [];
 
+  // What the book's own event handlers, set up once, need to see as it is now.
+  const live = useRef({ highlights, pop });
+  useEffect(() => {
+    live.current = { highlights, pop };
+  });
+
   const draw = (h: Highlight) =>
-    rendition.current?.annotations.highlight(h.cfi, {}, undefined, "hl", {
-      fill: "#f5c518",
-      "fill-opacity": "0.35",
-      "mix-blend-mode": "normal",
-    });
+    rendition.current?.annotations.highlight(
+      h.cfi,
+      {},
+      (e: Event) => {
+        // epub.js also calls this as a finger lands, which may be the start of a swipe: the click that follows a tap is enough.
+        if (e.type !== "click") return;
+        tapped.current = true;
+        const box = (e.target as Element).getBoundingClientRect();
+        setPop({ cfi: h.cfi, text: h.text, x: box.left + box.width / 2, top: box.top, bottom: box.bottom });
+      },
+      "hl",
+      { fill: tint(h), "fill-opacity": "0.35", "mix-blend-mode": "normal" },
+    );
 
   // Which way the pages run. Right goes forward unless the book is set to read right to left.
   const rtl = book.mode === "rtl";
@@ -429,7 +565,7 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
   useEffect(() => {
     let cancelled = false;
     const turn = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === "ArrowLeft") turnBy(-1);
       if (e.key === "ArrowRight") turnBy(1);
     };
@@ -444,9 +580,10 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         const r = opened.renderTo(stage.current!, { width: "100%", height: "100%", spread: "none" });
         rendition.current = r;
         r.themes.default({
-          body: {
-            "font-family": "Bookerly, Georgia, 'Times New Roman', serif !important",
-            "line-height": "1.6 !important",
+          body: { "line-height": "1.6 !important" },
+          // The chosen typeface (set on the body by `paint`) also reaches text the book styles itself.
+          "p, div, span, li, blockquote, a, em, strong, i, b, h1, h2, h3, h4, h5, h6, td": {
+            "font-family": "inherit !important",
           },
           a: { color: "#1c9be6 !important" },
           // Pictures (and whole pages of them, in comics saved as books) are shrunk to fit, never cropped.
@@ -462,9 +599,9 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         const selecting = () =>
           (r.getContents() as unknown as Contents[]).some((c) => String(c.window.getSelection() ?? "").length > 0);
         r.on("keyup", turn); // key presses while focus is inside the book
-        // With a mouse, a click on the left or right 45% of the page turns it. (Touch screens
-        // never reach the book's frame: see `wideEdges` on Shell.)
+        // A click or tap on the left or right 45% of the page turns it.
         let pending: ReturnType<typeof setTimeout>;
+        let held = false; // the press began with text selected or the toolbar up: it only puts those away
         const clicked = (e: MouseEvent) => {
           clearTimeout(pending);
           if (e.detail > 1 || (e.target as Element).closest?.("a")) return;
@@ -475,6 +612,8 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           const at = ((((frame - box.left + e.clientX) % box.width) + box.width) % box.width) / box.width;
           // Wait a moment: a double-click selects a word and must not turn the page.
           pending = setTimeout(() => {
+            if (tapped.current) return void (tapped.current = false);
+            if (held) return setPop(null);
             if (selecting()) return;
             if (at < 0.45) turnBy(-1);
             else if (at > 0.55) turnBy(1);
@@ -499,20 +638,45 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
             }
           }
           contents.document.addEventListener("click", clicked);
-          // A finger on the book itself (the sheet was down after mouse use): tell the window,
-          // which the frame's own events never reach, so the sheet goes back up.
-          contents.document.addEventListener("pointerdown", (e: PointerEvent) =>
-            window.dispatchEvent(new PointerEvent("pointerdown", { pointerType: e.pointerType })),
-          );
+          contents.document.addEventListener("pointerdown", () => {
+            held = selecting() || !!live.current.pop;
+          });
+          // The frame keeps touches to itself, so sideways swipes are watched for inside it.
+          // Not while text is selected: there a moving finger is stretching the selection.
+          const swiped = swipe((by) => selecting() || turnBy(by));
+          contents.document.addEventListener("touchstart", swiped.start, { passive: true });
+          contents.document.addEventListener("touchmove", swiped.move, { passive: true });
+          contents.document.addEventListener("touchend", swiped.end, { passive: true });
+          // The selection was dropped (a tap elsewhere): its toolbar goes; a tapped highlight's stays.
+          contents.document.addEventListener("selectionchange", () => {
+            if (String(contents.window.getSelection() ?? "")) return;
+            setPop((p) => (p && !live.current.highlights.some((h) => h.cfi === p.cfi) ? null : p));
+          });
+          const fonts = contents.document.createElement("style");
+          fonts.textContent = faces();
+          contents.document.head.append(fonts);
         });
         r.on("selected", (cfi: string, contents: Contents) => {
+          const chosen = contents.window.getSelection();
+          const text = String(chosen ?? "").trim();
+          if (!chosen?.rangeCount || !text) return;
           selectedIn.current = contents;
-          setSelection({ cfi, text: r.getRange(cfi).toString().trim().slice(0, 500) });
+          // Where the selection is in the window: its place in the frame, plus the frame's own.
+          const box = chosen.getRangeAt(0).getBoundingClientRect();
+          const frame = contents.window.frameElement?.getBoundingClientRect() ?? { left: 0, top: 0 };
+          setPop({
+            cfi,
+            text: text.slice(0, 500),
+            x: frame.left + box.left + box.width / 2,
+            top: frame.top + box.top,
+            bottom: frame.top + box.bottom,
+          });
         });
         r.on("relocated", (where: Location) => {
           // Chapter position plus the page within it: close enough without indexing the whole book.
           const { index, cfi, href, displayed } = where.start;
           setAt({ cfi, href });
+          setPop(null);
           onPatch({
             cfi,
             progress: where.atEnd
@@ -556,8 +720,14 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
 
   useEffect(() => {
     if (rendition.current) paint(rendition.current, prefs);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these two change the page
-  }, [prefs.theme, prefs.fontSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these change the page
+  }, [prefs.theme, prefs.fontSize, prefs.font]);
+  const fill = prefs.fill ?? 100;
+  useEffect(() => {
+    // The page's box changed height: epub.js lays the chapter out again and stays at the same place.
+    // (Its types ask for a size; without one it measures the box, as it does when the window resizes.)
+    (rendition.current as unknown as { resize(): void } | null)?.resize();
+  }, [fill]);
 
   const flat = (items: NavItem[], depth = 0): { item: NavItem; depth: number }[] =>
     items.flatMap((item) => [{ item, depth }, ...flat(item.subitems ?? [], depth + 1)]);
@@ -593,10 +763,26 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
     setFound(results);
   };
 
-  const closeSelection = () => {
+  const existing = pop ? highlights.find((h) => h.cfi === pop.cfi) : undefined;
+  /** Highlights the selection, or recolours the tapped highlight; `note` then opens its note. */
+  const mark = (color: string, note = false) => {
+    if (!pop) return;
+    const h: Highlight = existing
+      ? { ...existing, color }
+      : { cfi: pop.cfi, text: pop.text, color, added: Date.now() };
+    if (existing) rendition.current?.annotations.remove(h.cfi, "highlight");
+    draw(h);
+    onPatch({ highlights: existing ? highlights.map((x) => (x === existing ? h : x)) : [...highlights, h] });
     selectedIn.current?.window.getSelection()?.removeAllRanges();
-    setSelection(null);
+    setPop(null);
+    if (note) setNoting(h.cfi);
   };
+  const unmark = (h: Highlight) => {
+    rendition.current?.annotations.remove(h.cfi, "highlight");
+    onPatch({ highlights: highlights.filter((x) => x !== h) });
+    setPop(null);
+  };
+  const noted = highlights.find((h) => h.cfi === noting);
 
   const panels = {
     Contents: chapters.length ? (
@@ -628,15 +814,14 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         empty="No highlights yet. Select some text to highlight it or add a note."
         render={(h) => (
           <>
-            <span className="line-clamp-3 border-l-2 border-[#f5c518] pl-2">{h.text}</span>
+            <span className="line-clamp-3 border-l-2 pl-2" style={{ borderColor: tint(h) }}>
+              {h.text}
+            </span>
             {h.note && <span className="mt-1 block text-[#a0a0a0]">{h.note}</span>}
           </>
         )}
         onOpen={(h) => go(h.cfi)}
-        onDelete={(h) => {
-          rendition.current?.annotations.remove(h.cfi, "highlight");
-          onPatch({ highlights: highlights.filter((x) => x !== h) });
-        }}
+        onDelete={unmark}
       />
     ),
     Search: (
@@ -694,7 +879,6 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
         .filter(Boolean)
         .join(" · ")}
       onTurn={turnBy}
-      wideEdges="touch"
       controls={
         <>
           {tools.map(([name, icon]) => (
@@ -737,42 +921,115 @@ function EpubView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
           <Appearance prefs={prefs} onPrefs={onPrefs} />
         </>
       }
-      footer={
-        selection && (
-          <form
-            className="flex flex-wrap items-center gap-2 border-t border-white/10 px-4 py-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const note = String(new FormData(e.currentTarget).get("note") ?? "").trim();
-              const highlight = { ...selection, note: note || undefined, added: Date.now() };
-              draw(highlight);
-              onPatch({ highlights: [...highlights, highlight] });
-              closeSelection();
-            }}
-          >
-            <span className="w-[200px] max-w-full truncate text-[12px] text-[#a0a0a0]">
-              “{selection.text}”
-            </span>
-            <input
-              name="note"
-              aria-label="Note"
-              placeholder="Add a note (optional)"
-              className={`${fieldClass} !h-[30px] min-w-[120px] grow basis-0`}
-            />
-            <button className={controlClass}>Highlight</button>
-            <button type="button" onClick={closeSelection} className={controlClass}>
-              Cancel
-            </button>
-          </form>
-        )
-      }
+      prefs={prefs}
     >
       {broken ? (
         failed
       ) : (
         <>
           {!ready && <Loading lines />}
-          <div ref={stage} className="mx-auto h-full w-full max-w-[720px] px-4" />
+          <div className="flex min-h-0 grow items-center">
+            <div ref={stage} className="mx-auto w-full max-w-[720px] px-4" style={{ height: `${fill}%` }} />
+          </div>
+          {pop && (
+            <div
+              role="toolbar"
+              aria-label={existing ? "Highlight" : "Selected text"}
+              // Under the text where there is room: a phone's own Copy menu sits above it.
+              className="fixed z-20 flex -translate-x-1/2 items-center gap-[2px] rounded-full border border-white/15 bg-[#222] p-[5px] text-[#f2f2f2] shadow-2xl"
+              style={{
+                left: Math.min(Math.max(pop.x, 165), window.innerWidth - 165),
+                top:
+                  pop.bottom + 62 < window.innerHeight ? pop.bottom + 10 : Math.max(8, pop.top - 58),
+              }}
+            >
+              {Object.entries(HIGHLIGHTS).map(([name, hex]) => (
+                <button
+                  key={name}
+                  aria-label={`Highlight ${name}`}
+                  aria-pressed={!!existing && tint(existing) === hex}
+                  onClick={() => mark(name)}
+                  className="flex size-9 items-center justify-center rounded-full hover:bg-white/10"
+                >
+                  <span
+                    className="size-[22px] rounded-full outline-offset-2 outline-white [[aria-pressed=true]>&]:outline-2"
+                    style={{ background: hex }}
+                  />
+                </button>
+              ))}
+              <span className="mx-1 h-5 w-px bg-white/15" />
+              <button
+                aria-label={existing?.note ? "Edit note" : "Add note"}
+                onClick={() => {
+                  if (!existing) return mark("yellow", true);
+                  setNoting(existing.cfi);
+                  setPop(null);
+                }}
+                className="flex size-9 items-center justify-center rounded-full hover:bg-white/10"
+              >
+                <Icon name="pencil" className="size-[18px]" />
+              </button>
+              {/* Browsers only allow copying on a secure (https) address or on localhost. */}
+              {navigator.clipboard && (
+                <button
+                  aria-label="Copy"
+                  onClick={() => {
+                    navigator.clipboard.writeText(pop.text);
+                    selectedIn.current?.window.getSelection()?.removeAllRanges();
+                    setPop(null);
+                  }}
+                  className="flex size-9 items-center justify-center rounded-full hover:bg-white/10"
+                >
+                  <Icon name="doc" className="size-[18px]" />
+                </button>
+              )}
+              {existing && (
+                <button
+                  aria-label="Delete highlight"
+                  onClick={() => unmark(existing)}
+                  className="flex size-9 items-center justify-center rounded-full hover:bg-white/10"
+                >
+                  <Icon name="trash" className="size-[18px]" />
+                </button>
+              )}
+            </div>
+          )}
+          {noted && (
+            <form
+              key={noted.cfi}
+              // At the top on phones, clear of the keyboard.
+              className="absolute inset-x-2 z-20 mx-auto max-w-[460px] rounded-2xl border border-white/15 bg-[#222] p-4 text-[#f2f2f2] shadow-2xl max-md:top-2 md:bottom-6"
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                e.stopPropagation(); // closes the note, not the book
+                setNoting(null);
+              }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                const note = String(new FormData(e.currentTarget).get("note") ?? "").trim() || undefined;
+                onPatch({ highlights: highlights.map((x) => (x === noted ? { ...noted, note } : x)) });
+                setNoting(null);
+              }}
+            >
+              <p className="line-clamp-3 border-l-2 pl-2 text-[13px] text-[#a0a0a0]" style={{ borderColor: tint(noted) }}>
+                {noted.text}
+              </p>
+              <textarea
+                name="note"
+                aria-label="Note"
+                placeholder="Write a note"
+                defaultValue={noted.note}
+                autoFocus
+                className={`${fieldClass} mt-3 !h-auto min-h-[76px] py-2`}
+              />
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={() => setNoting(null)} className={controlClass}>
+                  Cancel
+                </button>
+                <button className={controlClass}>Save Note</button>
+              </div>
+            </form>
+          )}
         </>
       )}
     </Shell>
@@ -943,6 +1200,7 @@ function PagedView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       book={book}
       onClose={onClose}
       tone={{ bg: "#111", fg: "#e6e6e6" }}
+      prefs={prefs}
       status={count ? `Page ${page} of ${count}` : undefined}
       onTurn={mode === "scroll" ? undefined : (by) => go(page + by * step)}
       wideEdges
@@ -965,6 +1223,7 @@ function PagedView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       }
       controls={
         <>
+          <Appearance prefs={prefs} onPrefs={onPrefs} text={false} />
           <ToolButton label="Bookmarks" icon="lines" pressed={listing} onClick={() => setListing(!listing)} />
           <ToolButton
             label={marked ? "Remove bookmark" : "Bookmark this page"}
@@ -1109,32 +1368,35 @@ function TextView({ book, prefs, onPrefs, onPatch, onClose }: Props) {
       book={book}
       onClose={onClose}
       tone={THEMES[prefs.theme]}
+      prefs={prefs}
       controls={<Appearance prefs={prefs} onPrefs={onPrefs} />}
     >
       {!broken && !blocks && <Loading lines />}
       {broken ? (
         failed
       ) : (
-        <div
-          ref={scroller}
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            clearTimeout(timer.current);
-            // Saved once scrolling pauses, not on every frame.
-            timer.current = setTimeout(() => {
-              const max = el.scrollHeight - el.clientHeight;
-              onPatch({ progress: max > 0 ? Math.min(1, el.scrollTop / max) : 1 });
-            }, 400);
-          }}
-          className="min-h-0 grow overflow-y-auto px-5 py-8"
-          style={{ background: bg, color: fg, fontSize: `${prefs.fontSize}%` }}
-        >
-          <div className="mx-auto max-w-[680px] font-serif leading-[1.6]">
-            {blocks?.map((text, i) => (
-              <p key={i} className="mb-[0.9em] whitespace-pre-wrap">
-                {text}
-              </p>
-            ))}
+        <div className="flex min-h-0 grow items-center" style={{ background: bg }}>
+          <div
+            ref={scroller}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              clearTimeout(timer.current);
+              // Saved once scrolling pauses, not on every frame.
+              timer.current = setTimeout(() => {
+                const max = el.scrollHeight - el.clientHeight;
+                onPatch({ progress: max > 0 ? Math.min(1, el.scrollTop / max) : 1 });
+              }, 400);
+            }}
+            className="w-full overflow-y-auto px-5 py-8"
+            style={{ color: fg, fontSize: `${prefs.fontSize}%`, height: `${prefs.fill ?? 100}%` }}
+          >
+            <div className="mx-auto max-w-[680px] leading-[1.6]" style={{ fontFamily: fontOf(prefs.font) }}>
+              {blocks?.map((text, i) => (
+                <p key={i} className="mb-[0.9em] whitespace-pre-wrap">
+                  {text}
+                </p>
+              ))}
+            </div>
           </div>
         </div>
       )}

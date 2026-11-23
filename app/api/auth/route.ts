@@ -15,8 +15,8 @@ import { DEMO, db } from "../../server/db";
 import { lanAddresses } from "../../server/discovery";
 
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
-// The guest from "Continue without an account" never counts: the first real account is the admin.
-const noAdmin = () => !db.prepare("SELECT 1 FROM users WHERE admin = 1").get();
+// A guest ("Continue without an account") never counts: the first real account is the admin.
+const noAdmin = () => !db.prepare("SELECT 1 FROM users WHERE admin = 1 AND username NOT LIKE 'guest-%@local'").get();
 // People sign themselves up, and a family code entered there puts them straight into a family.
 // The admin can turn that off and add people one by one instead.
 const signupsOpen = () =>
@@ -135,7 +135,10 @@ export async function POST(req: Request) {
       return fail("No family has that code. Check it, or leave it empty.");
     }
     const id = create(first, text(body.last, 40), username, body.password, admin);
-    if (admin) setting("setup", "pending");
+    if (admin) {
+      setting("setup", "pending");
+      db.prepare("UPDATE users SET admin = 0 WHERE username LIKE 'guest-%@local'").run(); // guests ran it until now
+    }
     if (joining) db.prepare("UPDATE users SET family = ? WHERE id = ?").run(joining.id, id);
     return signIn(id, body.remember === true);
   }
@@ -165,6 +168,21 @@ export async function POST(req: Request) {
     ).run(Date.now());
     // Like a profile's, the name has an "@" and the password is unknown: nobody can sign in to it.
     return signIn(create("Guest", "", `demo-${randomUUID()}@local`, randomUUID()), false);
+  }
+
+  // "Continue without an account": an account nobody can sign in to, known only by this browser's
+  // cookie. Offered wherever people may sign themselves up. Until the server has a real admin a
+  // guest runs it, as the first account would: on a private library there is nobody else to.
+  if (body.action === "guest") {
+    if (!noAdmin() && !signupsOpen()) return fail("New accounts are turned off on this server. Ask its admin.", 403);
+    // Guests whose cookie has run out can never come back: their rows go.
+    db.prepare(
+      `DELETE FROM users WHERE username LIKE 'guest-%@local' AND id NOT IN
+         (SELECT coalesce(u.owner, u.id) FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.expires > ?)`,
+    ).run(Date.now());
+    const id = create("Guest", "", `guest-${randomUUID()}@local`, randomUUID(), noAdmin());
+    // 400 days: as long as browsers keep a cookie.
+    return Response.json({ ok: true }, { headers: { "Set-Cookie": startSession(req, id, true, 400) } });
   }
 
   // There is no mail server, so the code goes to the admin (Settings → Account) and the server log.
@@ -211,6 +229,24 @@ export async function POST(req: Request) {
 
   const user = currentUser(req);
   if (!user) return fail("Sign in first", 401);
+
+  // A guest gives their account a username and password, and keeps everything that is in it.
+  if (body.action === "claim") {
+    if (!user.guest) return fail("You already have an account.");
+    const username = text(body.username, 30);
+    const first = text(body.first, 40) || username;
+    if (!USERNAME.test(username)) return fail(BAD_USERNAME);
+    if (!validPassword(body.password)) return fail("Use a password of at least 8 characters.");
+    if (idOf(username)) return fail("That username is taken. Choose another.", 409);
+    db.prepare("UPDATE users SET first = ?, last = '', username = ?, password = ?, admin = ? WHERE id = ?").run(
+      first,
+      username,
+      hashPassword(body.password),
+      user.admin || noAdmin() ? 1 : 0,
+      user.account,
+    );
+    return Response.json({ ok: true });
+  }
 
   if (body.action === "password") {
     // The password belongs to the account, whichever of its profiles is in use.

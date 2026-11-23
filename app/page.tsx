@@ -41,6 +41,7 @@ import {
   removeDownloads,
   savePending,
 } from "./offline";
+import { canPickFolder, chosenFolder, loadBackup, pickFolder, saveBackup } from "./backup";
 import {
   DEFAULT_PREFS,
   INFO_VERSION,
@@ -52,6 +53,8 @@ import {
   type Batch,
   type Saved,
   applyBatch,
+  backupOf,
+  restore,
   mergeBatch,
 } from "./sync";
 
@@ -1494,6 +1497,7 @@ type Account = {
   name: string;
   username: string;
   admin: boolean;
+  guest?: boolean; // reading without an account
   reset?: string | null;
 };
 type Profile = { id: number; name: string; locked?: number }; // locked: has a PIN
@@ -1845,6 +1849,105 @@ function Credentials({
   );
 }
 
+/**
+ * Asks a guest for a folder to keep a copy of their reading in. A copy another guest left there
+ * (this person, before the server forgot them) is brought back. Resolves to the folder's name, or null.
+ */
+async function chooseBackupFolder({ s, set, toast, user }: Pick<Lib, "s" | "set" | "toast" | "user">) {
+  const folder = await pickFolder();
+  if (!folder) return null;
+  const backup = await loadBackup();
+  if (backup && backup.user !== user.id) {
+    set((prev) => restore(prev, backup));
+    toast("Restored", `Your reading was brought back from “${folder.name}”.`);
+  } else await saveBackup(backupOf(user.id, s));
+  return folder.name;
+}
+
+/** Shown once to someone who continued without an account: where their data lives, and the offer of a folder. */
+function KeepData({ onClose }: { onClose: () => void }) {
+  const lib = useContext(LibCtx);
+  const can = canPickFolder();
+  return (
+    <Sheet label="Never lose your data" onClose={onClose} className="w-[440px] max-w-[calc(100%-32px)]">
+      <div className={`${sheetClass} !pt-8`}>
+        <h2 className="font-serif text-[24px] font-bold">Never Lose Your Data</h2>
+        <p className="mt-2 text-[14px] leading-[20px] text-[#a0a0a0]">
+          You’re reading without an account, so your progress, highlights and shelves are tied to this
+          browser. Sonnet keeps a copy of them in the browser
+          {can
+            ? ", and can keep another in a folder on this device. If the browser is ever cleared, choosing that folder again brings everything back."
+            : ". Keeping a second copy in a folder needs Chrome, Edge or the desktop app, on https or localhost."}
+        </p>
+        <div className="mt-6 flex flex-col gap-2">
+          {can && (
+            <button
+              className={`${primaryClass} h-[38px]`}
+              onClick={async () => (await chooseBackupFolder(lib)) && onClose()}
+            >
+              Choose a Folder
+            </button>
+          )}
+          <button onClick={onClose} className={can ? "h-[38px] text-[13px] font-bold text-[#a0a0a0] hover:text-white" : `${primaryClass} h-[38px]`}>
+            {can ? "Keep in This Browser Only" : "OK"}
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/** Settings → Account for someone reading without an account: making an account of it, and the backup folder. */
+function GuestAccount() {
+  const lib = useContext(LibCtx);
+  const [folder, setFolder] = useState<string | null>(null); // the backup folder's name
+  useEffect(() => {
+    chosenFolder().then((kept) => setFolder(kept?.name ?? null));
+  }, []);
+  return (
+    <>
+      <SettingRow
+        title="Reading without an account"
+        text="Your progress, highlights and shelves are tied to this browser. Create an account to sign in on other devices and share with family; everything here comes with you."
+      >
+        <Credentials
+          labels={["Username", "Password"]}
+          button="Create Account"
+          onSubmit={async (username, password) => {
+            const failed = await authCall({ action: "claim", username, password });
+            if (failed) return failed;
+            lib.toast("Account Created", `You now sign in as ${username}.`);
+            setTimeout(() => location.reload(), 1200); // the page still shows the guest
+            return null;
+          }}
+        />
+      </SettingRow>
+      <SettingRow
+        title="Backup folder"
+        text={
+          folder
+            ? `A copy of your reading is saved in “${folder}” and in this browser. After a restart the browser may stop writing to the folder until you choose it again.`
+            : canPickFolder()
+              ? "A copy of your reading is kept in this browser. Choose a folder to keep one on this device as well; choosing it again later brings everything back."
+              : "A copy of your reading is kept in this browser. A folder copy needs Chrome, Edge or the desktop app, on https or localhost."
+        }
+      >
+        {canPickFolder() && (
+          <button
+            className={controlClass}
+            onClick={async () => {
+              const name = await chooseBackupFolder(lib);
+              if (name) setFolder(name);
+            }}
+          >
+            {folder ? "Change Folder" : "Choose Folder"}
+          </button>
+        )}
+      </SettingRow>
+    </>
+  );
+}
+
 /** Admin only: the people who can sign in to this server. */
 function Users() {
   const { user, toast } = useContext(LibCtx);
@@ -1997,6 +2100,10 @@ function SettingsSheet({
   const body: Record<string, ReactNode> = {
     profile: (
       <>
+        {user.guest ? (
+          <GuestAccount />
+        ) : (
+          <>
         <SettingRow
           title={user.name}
           text={`${user.username} • ${user.admin ? "Admin of this server" : "Reader"}`}
@@ -2047,6 +2154,8 @@ function SettingsSheet({
         <Family />
         <h3 className="px-5 pt-5 pb-2 text-[15px] font-bold">Profiles</h3>
         <Profiles />
+          </>
+        )}
         {user.admin && (
           <>
             <h3 className="px-5 pt-5 pb-2 text-[15px] font-bold">Accounts on This Server</h3>
@@ -4415,6 +4524,16 @@ function SignIn({ onDone }: { onDone: () => void }) {
           )}
         </form>
 
+        {options.signups && mode !== "forgot" && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => send({ action: "guest" })}
+            className="mx-auto mt-4 block text-[13px] font-bold text-[#a0a0a0] hover:text-white"
+          >
+            Continue Without an Account
+          </button>
+        )}
         {!options.signups && (
           <p className="mt-4 text-center text-[12px] text-[#8c8c8c]">
             New accounts are turned off here. Ask the server’s admin to let you in.
@@ -4448,6 +4567,7 @@ export default function Page() {
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [previewing, setPreviewing] = useState<Found | null>(null);
   const [picking, setPicking] = useState<"auto" | "asked" | null>(null); // profile picker
+  const [keeping, setKeeping] = useState(false); // the guest's "Never lose your data" sheet
   const [social, setSocial] = useState(NO_SOCIAL);
   const loadSocial = () =>
     fetch("/api/social")
@@ -4487,7 +4607,13 @@ export default function Page() {
       // Changes that couldn't be sent last time are shown again and go out with the next save.
       userId.current = body.user.id;
       carry.current = loadPending(body.user.id);
-      const shown = carry.current ? applyBatch(state, carry.current) : state;
+      let shown = carry.current ? applyBatch(state, carry.current) : state;
+      if (body.user.guest) {
+        // A copy left by an earlier guest of this browser, whom the server has forgotten: theirs again.
+        const backup = await loadBackup();
+        if (backup && backup.user !== body.user.id) shown = restore(shown, backup);
+        if (!localStorage.getItem("backup-asked")) setKeeping(true);
+      }
       synced.current = state;
       latest.current = shown;
       setS(shown);
@@ -4554,6 +4680,12 @@ export default function Page() {
     // `flush` reads everything through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s, loaded]);
+  // A guest's copy, in the browser and their folder, follows every change.
+  useEffect(() => {
+    if (typeof auth !== "object" || !auth.guest) return;
+    const timer = setTimeout(() => saveBackup(backupOf(auth.id, s)), 2000);
+    return () => clearTimeout(timer);
+  }, [s, auth]);
   useEffect(() => {
     // Closing the tab inside the 0.8s debounce would otherwise drop the last change.
     const leave = () => flush(true);
@@ -5077,7 +5209,8 @@ export default function Page() {
                     collections: prev.collections.map((x) => (x.id === c.id ? { ...x, name } : x)),
                   })),
                 () => deleteShelf(c.id),
-                {
+                // A guest is a family of one.
+                user.guest ? undefined : {
                   label: "Share with Family",
                   onClick: async () => {
                     const made = await lib.socialCall({ action: "newShelf", name: c.name, books: c.bookIds });
@@ -5161,17 +5294,19 @@ export default function Page() {
               panelClass="w-[210px] max-md:w-[270px]"
             >
               <MenuItem icon="lines" label="Just for Me" onClick={() => lib.newCollection()} />
-              <MenuItem
-                icon="people"
-                label="Shared with Family"
-                onClick={async () => {
-                  // Made with a placeholder name and put straight into renaming, like your own shelves.
-                  const made = await lib.socialCall({ action: "newShelf", name: "Untitled Shelf" });
-                  if (!made) return;
-                  go(`x:${made.id}`);
-                  setRenaming(`x:${made.id}`);
-                }}
-              />
+              {!user.guest && (
+                <MenuItem
+                  icon="people"
+                  label="Shared with Family"
+                  onClick={async () => {
+                    // Made with a placeholder name and put straight into renaming, like your own shelves.
+                    const made = await lib.socialCall({ action: "newShelf", name: "Untitled Shelf" });
+                    if (!made) return;
+                    go(`x:${made.id}`);
+                    setRenaming(`x:${made.id}`);
+                  }}
+                />
+              )}
               {/* With more than one other person: a shelf for just one of them. More can be added from its ••• menu. */}
               {social.people.length > 1 &&
                 social.people.map((p) => (
@@ -5232,7 +5367,7 @@ export default function Page() {
                   }}
                 />
                 {MENU_RULE}
-                <MenuItem icon="user" label="Switch Profile" onClick={lib.pickProfile} />
+                {!user.guest && <MenuItem icon="user" label="Switch Profile" onClick={lib.pickProfile} />}
                 {globalThis.sonnetDesktop && (
                   <MenuItem
                     icon="want"
@@ -5240,7 +5375,8 @@ export default function Page() {
                     onClick={() => globalThis.sonnetDesktop?.changeServer()}
                   />
                 )}
-                <MenuItem icon="logout" label="Log Out" onClick={lib.logout} />
+                {/* Not for a guest: there would be no way back in. */}
+                {!user.guest && <MenuItem icon="logout" label="Log Out" onClick={lib.logout} />}
               </Popover>
             </div>
         </aside>
@@ -5409,6 +5545,14 @@ export default function Page() {
           />
         )}
         <Setup />
+        {keeping && (
+          <KeepData
+            onClose={() => {
+              localStorage.setItem("backup-asked", "1");
+              setKeeping(false);
+            }}
+          />
+        )}
         {detail && <Detail {...detail} />}
         {previewing && <FoundSheet found={previewing} onClose={() => setPreviewing(null)} />}
         {picking && (
