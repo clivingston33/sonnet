@@ -95,6 +95,22 @@ test("EPUB of page images (fixed layout) is a comic, read right to left when its
   assert.deepEqual(await readMeta(novel), { title: "Emma" });
 });
 
+test("EPUB with a picture per page is a comic; an illustrated novel with as many pictures is not", async () => {
+  const book = (name: string, page: string) => {
+    const files: Record<string, Buffer> = {};
+    let manifest = "";
+    for (let i = 0; i < 20; i++) manifest += `<item href="img/${i}.jpg" media-type="image/jpeg"/>`;
+    for (let i = 0; i < 10; i++) {
+      manifest += `<item href="p${i}.xhtml" media-type="application/xhtml+xml"/>`;
+      files[`OEBPS/p${i}.xhtml`] = Buffer.from(`<html><head><title>Page ${i}</title></head><body>${page}</body></html>`);
+    }
+    return epub(name, `<package><metadata><title>T</title></metadata><manifest>${manifest}</manifest></package>`, files);
+  };
+  assert.equal((await readMeta(await book("strip.epub", `<img src="img/1.jpg" alt="Page"/>`))).comic, true);
+  const chapter = `<img src="img/1.jpg"/><p>${"Alice was beginning to get very tired. ".repeat(40)}</p>`;
+  assert.equal((await readMeta(await book("illustrated.epub", chapter))).comic, undefined);
+});
+
 test("unreadable and unknown files yield {}", async () => {
   const bad = path.join(dir, "bad.epub");
   writeFileSync(bad, "not a zip");

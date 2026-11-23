@@ -105,6 +105,22 @@ async function epub(file: string): Promise<FileMeta> {
   const href = coverItem && attr(coverItem, "href");
   const coverFile = href && zip.file(path.posix.join(path.posix.dirname(opfPath), decodeURIComponent(href)));
 
+  // A plain EPUB with a picture on every page is a comic: at least as many pictures as pages, and
+  // pages with next to nothing to read. An illustrated novel can pass the first test, not the second.
+  const pages = items.filter((a) => /xhtml/.test(attr(a, "media-type") ?? ""));
+  const pictures = items.filter((a) => /^image\//.test(attr(a, "media-type") ?? "")).length;
+  let allPictures = pictures >= 20 && pictures >= pages.length;
+  if (allPictures) {
+    // A handful of pages from across the book, so a long one is not read in full.
+    const sample = pages.filter((_, i) => i % Math.ceil(pages.length / 5) === 0);
+    let words = 0;
+    for (const page of sample) {
+      const name = path.posix.join(path.posix.dirname(opfPath), decodeURIComponent(attr(page, "href") ?? ""));
+      words += plain((await text(name)).replace(/<head[\s\S]*?<\/head>/i, ""))?.split(" ").length ?? 0;
+    }
+    allPictures = words < 40 * sample.length;
+  }
+
   return {
     title: plain(tags(opf, "title")[0]?.text ?? ""),
     author: tags(opf, "creator").map((c) => plain(c.text)).filter(Boolean).join(", ") || undefined,
@@ -114,14 +130,11 @@ async function epub(file: string): Promise<FileMeta> {
     isbn: isbn && isbnOf(decode(isbn.text)),
     cover: coverFile ? await coverFile.async("uint8array") : undefined,
     // Fixed-layout EPUBs are how manga and comics are packaged; comic converters also say so outright.
-    // Others are plain EPUBs with one picture per page: at least as many pictures as pages of text.
     comic:
       metas.some((m) => attr(m.attrs, "property") === "rendition:layout" && /pre-paginated/.test(m.text)) ||
       named("fixed-layout") === "true" ||
       named("book-type") === "comic" ||
-      ((pictures) => pictures >= 20 && pictures >= items.filter((a) => /xhtml/.test(attr(a, "media-type") ?? "")).length)(
-        items.filter((a) => /^image\//.test(attr(a, "media-type") ?? "")).length,
-      ) ||
+      allPictures ||
       undefined,
     rtl: /page-progression-direction\s*=\s*["']rtl/.test(opf) || undefined,
   };

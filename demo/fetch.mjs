@@ -25,6 +25,7 @@ const save = async (name, url) => {
 for (const book of [
   "mary-shelley/frankenstein",
   "jane-austen/pride-and-prejudice",
+  "lewis-carroll/alices-adventures-in-wonderland/john-tenniel",
   "h-g-wells/the-war-of-the-worlds",
   "bram-stoker/dracula",
   "arthur-conan-doyle/a-study-in-scarlet",
@@ -38,11 +39,23 @@ for (const book of [
   await save(name, `https://standardebooks.org/ebooks/${book}/downloads/${name}?source=download`);
 }
 
-// LibriVox recording (public domain), one file with chapters. It has no tags: the author is in the name.
-await save(
-  "Alice's Adventures in Wonderland (Lewis Carroll).m4b",
-  "https://archive.org/download/alice_in_wonderland_librivox/AliceInWonderland_librivox.m4b",
-);
+// LibriVox recording (public domain), a file per chapter: Sonnet joins files of one album into one
+// audiobook. (LibriVox's single M4B has a broken end that the tag reader gives up on.)
+for (let n = 1; n <= 12; n++) {
+  const chapter = String(n).padStart(2, "0");
+  await save(`Alice in Wonderland ${chapter}.mp3`, async () => {
+    const data = Buffer.from(
+      await get(`https://archive.org/download/alice_in_wonderland_librivox/wonderland_ch_${chapter}_64kb.mp3`),
+    );
+    // The title tag is the file's name, and it becomes the chapter's. Written over in place,
+    // padded to the same length, so nothing else in the tag has to move.
+    const old = `wonderland_ch_${chapter}`;
+    const title = `Chapter ${n}`.padEnd(old.length, "\0");
+    for (let at = data.indexOf(old, 0, "latin1"); at >= 0; at = data.indexOf(old, at + 1, "latin1"))
+      data.write(title, at, "latin1");
+    return data;
+  });
+}
 
 // Oliver Byrne's 1847 colour edition of Euclid.
 await save(

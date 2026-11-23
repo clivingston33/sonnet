@@ -3,6 +3,7 @@ import {
   checkPassword,
   crossSite,
   currentUser,
+  demoGuard,
   endSession,
   hashPassword,
   familyMembers,
@@ -47,6 +48,8 @@ const tooMany = (minutes: number) =>
 
 /** Who is signed in, what the sign-in page should offer, and (for admins) the user list. */
 export async function GET(req: Request) {
+  const refused = demoGuard(req);
+  if (refused) return refused;
   const user = currentUser(req);
   const first = noAdmin();
   const family = user && familyOf(user.account);
@@ -92,8 +95,13 @@ const BAD_USERNAME = "Choose a username of 3 to 30 letters, numbers, dots, dashe
 
 /** POST { action: "register" | "login" | "logout" | "password" | "signups" | "removeUser", ... } */
 export async function POST(req: Request) {
+  const refused = demoGuard(req);
+  if (refused) return refused;
   if (crossSite(req)) return fail("Forbidden", 403);
   const body: Record<string, unknown> = await req.json().catch(() => ({}));
+  // A demo has throwaway accounts only: nothing to sign in to, create, reset or change.
+  if (DEMO && body.action !== "demo" && body.action !== "logout")
+    return fail("That is turned off in the demo.", 403);
   const signIn = (id: number, remember: boolean) =>
     Response.json({ ok: true }, { headers: { "Set-Cookie": startSession(req, id, remember) } });
   const create = (first: string, last: string, username: string, password: string, admin = false) =>
@@ -106,8 +114,6 @@ export async function POST(req: Request) {
     db.prepare("SELECT id FROM users WHERE username = ?").get(username)?.id;
 
   if (body.action === "register") {
-    // A demo has throwaway accounts only (the "demo" action below).
-    if (DEMO) return fail("Accounts are turned off in the demo.", 403);
     const admin = noAdmin();
     if (!admin && !signupsOpen())
       return fail("New accounts are turned off on this server. Ask its admin.", 403);
@@ -149,12 +155,13 @@ export async function POST(req: Request) {
   }
 
   // A public demo: every visitor gets an account of their own, so they don't share progress or shelves.
-  // ponytail: nothing limits how many are made; count per address if the demo gets hammered.
   if (body.action === "demo" && DEMO) {
-    // Earlier visitors' accounts go once their day-long session has ended.
+    // Earlier visitors' accounts go once their day-long session has ended, and the oldest go
+    // early when there are more than 300: a script can't fill the database with them.
     db.prepare(
-      `DELETE FROM users WHERE username LIKE 'demo-%@local' AND id NOT IN (
-         SELECT coalesce(u.owner, u.id) FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.expires > ?)`,
+      `DELETE FROM users WHERE username LIKE 'demo-%@local' AND (
+         id NOT IN (SELECT coalesce(u.owner, u.id) FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.expires > ?)
+         OR id <= (SELECT id FROM users WHERE username LIKE 'demo-%@local' ORDER BY id DESC LIMIT 1 OFFSET 300))`,
     ).run(Date.now());
     // Like a profile's, the name has an "@" and the password is unknown: nobody can sign in to it.
     return signIn(create("Guest", "", `demo-${randomUUID()}@local`, randomUUID()), false);

@@ -1,5 +1,5 @@
 import { authorize } from "../../server/auth";
-import { db, getBook, patchBook } from "../../server/db";
+import { DEMO, db, getBook, patchBook } from "../../server/db";
 import { scanIfStale } from "../../server/folders";
 import { deleteBook } from "../../server/ingest";
 import { EDITABLE_FIELDS, PREF_KEYS, USER_FIELDS, type Batch } from "../../sync";
@@ -78,7 +78,8 @@ export async function PATCH(req: Request) {
     // book: they are kept with that profile and laid over the shared record, for them only.
     const edits = pick(change.shared, EDITABLE_FIELDS);
     // Which shelf a file belongs on (Books or Manga & Comics) is a fact about the file, so it is shared.
-    if (edits.kind === "book" || edits.kind === "comic") patchBook(id, { kind: edits.kind });
+    // Not in a demo, where one visitor would be moving books for all the others.
+    if (!DEMO && (edits.kind === "book" || edits.kind === "comic")) patchBook(id, { kind: edits.kind });
     delete edits.kind;
     if (Object.keys(edits).length) upsertMine.run(user.id, id, JSON.stringify(edits));
     const mine = pick(change.mine, USER_FIELDS);

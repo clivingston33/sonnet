@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { authorize, demoOff } from "../../server/auth";
+import { authorize } from "../../server/auth";
 import { COVER_DIR, STORED, getBook, patchBook } from "../../server/db";
 import { filePath, saveCover, sendFile } from "../../server/files";
 
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 
 /** PUT /api/file?book=<id>, image as the body: sets the book's cover (used for a PDF's first page). */
 export async function PUT(req: Request) {
-  const user = demoOff() ?? authorize(req, true);
+  const user = authorize(req, true);
   if (user instanceof Response) return user;
   const id = new URL(req.url).searchParams.get("book") ?? "";
   const book = getBook(id);

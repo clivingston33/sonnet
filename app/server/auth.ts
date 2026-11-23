@@ -94,6 +94,8 @@ export function crossSite(req: Request) {
  * Pass `write` for anything that changes data: those are refused when they come from another site.
  */
 export function authorize(req: Request, write = false): User | Response {
+  const refused = demoGuard(req);
+  if (refused) return refused;
   if (write && crossSite(req)) return Response.json({ error: "Forbidden" }, { status: 403 });
   return currentUser(req) ?? Response.json({ error: "Sign in first" }, { status: 401 });
 }
@@ -105,9 +107,46 @@ export function authorizeAdmin(req: Request, write = false): User | Response {
   return user.admin ? user : Response.json({ error: "Only the admin can do that." }, { status: 403 });
 }
 
-/** On a public demo, the Response to return instead of taking in a visitor's file or words. */
-export const demoOff = () =>
-  DEMO ? Response.json({ error: "That is turned off in the demo." }, { status: 403 }) : null;
+// A public demo is open to anyone. These keep one visitor, or a script, from spoiling it for the
+// rest, from filling the disk, and from making this server pester the public catalogues.
+const seen = new Map<string, { n: number; until: number }>();
+/** True once `key` has come up more than `max` times within a minute. */
+function tooOften(key: string, max: number) {
+  const now = Date.now();
+  if (seen.size > 50_000) seen.clear(); // a flood of addresses: start counting again rather than grow
+  const entry = seen.get(key);
+  if (!entry || entry.until < now) {
+    seen.set(key, { n: 1, until: now + 60_000 });
+    return false;
+  }
+  return ++entry.n > max;
+}
+
+/** On a public demo (SONNET_DEMO), the Response to return instead of handling the request, if any. */
+export function demoGuard(req: Request): Response | null {
+  if (!DEMO) return null;
+  const refuse = (error: string, status: number) => Response.json({ error }, { status });
+  const { pathname } = new URL(req.url);
+  const write = req.method !== "GET" && req.method !== "HEAD";
+  // No part of a demo: the admin's pages (it has no admin), and anything that puts a visitor's
+  // files, pictures or words on the server: uploads, covers, reviews, books added from the catalogue.
+  if (/^\/api\/(admin|folders|import)\b/.test(pathname) || (write && /^\/api\/(file|reviews|discover)\b/.test(pathname)))
+    return refuse("That is turned off in the demo.", 403);
+  // What the app itself sends is small and says how long it is.
+  const length = req.headers.get("content-length");
+  if (write && (length === null || Number(length) > 256 * 1024)) return refuse("Too large", 413);
+
+  // Behind the Cloudflare tunnel this is the visitor's address; the firewall lets nothing else in.
+  const who = req.headers.get("cf-connecting-ip") ?? "direct";
+  const fast =
+    tooOften(`all ${who}`, 600) ||
+    (write && tooOften(`write ${who}`, 90)) ||
+    // Signing in makes an account and hashes a password.
+    (write && pathname === "/api/auth" && (tooOften(`auth ${who}`, 10) || tooOften("auth", 120))) ||
+    // Each of these has the server ask a public catalogue (Open Library, AniList, Audible), from its own address.
+    (/^\/api\/(discover|lookup)\b/.test(pathname) && (tooOften(`out ${who}`, 30) || tooOften("out", 120)));
+  return fast ? refuse("The demo is being used too fast. Wait a minute and try again.", 429) : null;
+}
 
 // `Secure` only over HTTPS: a home server reached by plain http://ip would otherwise never get the cookie.
 // Without Max-Age the cookie goes when the browser closes.
